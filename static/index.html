@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="barra">
+    <a class="marca" href="#mercado" aria-label="Radar, ir a Mercado">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9.5" opacity=".45"/><circle cx="12" cy="12" r="5.2" opacity=".7"/><path d="M12 12 19 5"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
+      <span>Radar</span>
+    </a>
+    <div class="buscador">
+      <input id="buscador" type="search" placeholder="Buscar acción, ETF o cripto…" autocomplete="off" spellcheck="false" aria-label="Buscar activo">
+      <div class="sugerencias" id="sugerencias" hidden></div>
+    </div>
+    <div class="indices" id="indices" aria-label="Índices del mercado"></div>
+  </header>
+
+  <nav class="rail" aria-label="Secciones">
+    <a href="#mercado" data-vista="mercado"><svg viewBox="0 0 24 24"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg>Mercado</a>
+    <a href="#cartera" data-vista="cartera"><svg viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="12.5" rx="2"/><path d="M8.5 7V5.5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2V7M3.5 12.5h17"/></svg>Cartera</a>
+    <a href="#noticias" data-vista="noticias"><svg viewBox="0 0 24 24"><path d="M4 5.5h13v13a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2zM17 9.5h3v9a1.5 1.5 0 0 1-3 0M7.5 9h6M7.5 12.5h6M7.5 16h4"/></svg>Noticias</a>
+    <a href="#social" data-vista="social"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H10l-4.5 3.5v-3.5H4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>Social</a>
+    <a href="#ajustes" data-vista="ajustes" class="abajo"><svg viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 12h3m4 0h9M4 17h11m4 0h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>Ajustes</a>
+  </nav>
+
+  <main>
+    <!-- MERCADO -->
+    <section class="vista vista-mercado" id="v-mercado" hidden>
+      <div class="herramientas" id="herramientas" role="toolbar" aria-label="Herramientas de dibujo"></div>
+
+      <div class="centro">
+        <div class="cabecera-grafica">
+          <div class="titulo-activo">
+            <strong id="g-simbolo">—</strong>
+            <span id="g-nombre"></span>
+            <b class="num" id="g-precio"></b>
+            <span class="num" id="g-var"></span>
+          </div>
+          <div class="controles">
+            <div class="segmentos" id="intervalos" role="group" aria-label="Temporalidad"></div>
+            <select id="tipo-grafica" aria-label="Tipo de gráfica">
+              <option value="velas">Velas</option>
+              <option value="heikin">Heikin Ashi</option>
+              <option value="barras">Barras</option>
+              <option value="linea">Línea</option>
+              <option value="area">Área</option>
+            </select>
+            <details class="menu" id="menu-indicadores">
+              <summary>Indicadores</summary>
+              <div class="menu-panel" id="lista-indicadores"></div>
+            </details>
+            <button id="b-log" class="boton fino" aria-pressed="false" title="Escala logarítmica">Log</button>
+            <button id="b-ajustar" class="boton fino" title="Ver todo el histórico">Ajustar</button>
+            <button id="b-tv" class="boton fino" aria-pressed="false" title="Abre el widget oficial de TradingView, con todas sus herramientas. Lo que dibujes ahí no se guarda en Radar.">TradingView</button>
+          </div>
+        </div>
+
+        <div class="grafica-envoltura" id="grafica-envoltura">
+          <div class="grafica" id="grafica"></div>
+          <canvas id="capa-dibujo" aria-hidden="true"></canvas>
+          <div class="leyenda" id="leyenda"></div>
+          <div class="opciones-dibujo" id="opciones-dibujo" hidden>
+            <div class="colores" id="colores" role="group" aria-label="Color"></div>
+            <div class="segmentos" id="grosores" role="group" aria-label="Grosor"></div>
+            <div class="segmentos" id="trazos" role="group" aria-label="Trazo"></div>
+            <button class="boton fino" id="b-borrar-dibujo" title="Borrar (Supr)">Borrar</button>
+          </div>
+          <div class="grafica-aviso" id="grafica-aviso" hidden></div>
+          <div class="tv" id="tv" hidden></div>
+        </div>
+        <div class="panel-inferior" id="panel-inferior"></div>
+      </div>
+
+      <aside class="lateral">
+        <h2>Mis activos</h2>
+        <div class="lista-activos" id="lista-activos"></div>
+        <h2 id="lateral-noticias-titulo">Noticias</h2>
+        <div class="lista-noticias" id="lista-noticias-activo"></div>
+      </aside>
+    </section>
+
+    <!-- CARTERA -->
+    <section class="vista vista-texto" id="v-cartera" hidden>
+      <div class="cabecera-vista"><h1>Cartera</h1><p id="cartera-aviso"></p></div>
+      <div class="metricas" id="metricas"></div>
+
+      <form class="formulario" id="form-posicion" autocomplete="off">
+        <div class="campo campo-activo">
+          <label for="f-activo">Activo</label>
+          <div class="buscador">
+            <input id="f-activo" type="search" placeholder="Apple, BTC, Santander…" required spellcheck="false">
+            <div class="sugerencias" id="f-sugerencias" hidden></div>
+          </div>
+        </div>
+        <div class="campo">
+          <label for="f-cantidad">Cantidad</label>
+          <input id="f-cantidad" type="number" step="any" min="0" placeholder="0 = solo seguir" required>
+        </div>
+        <div class="campo">
+          <label for="f-precio">Precio medio de compra <span id="f-moneda"></span></label>
+          <input id="f-precio" type="number" step="any" min="0" placeholder="0,00">
+        </div>
+        <button class="boton primario" id="f-enviar" type="submit">Añadir</button>
+        <button class="boton" id="f-cancelar" type="button" hidden>Cancelar</button>
+        <p class="nota" id="f-nota"></p>
+      </form>
+
+      <div class="tabla-envoltura"><table class="tabla" id="tabla-cartera"></table></div>
+      <p class="vacio" id="cartera-vacia" hidden>Aún no tienes activos. Añade el primero arriba: con cantidad 0 lo sigues sin registrar una compra.</p>
+    </section>
+
+    <!-- NOTICIAS -->
+    <section class="vista vista-texto" id="v-noticias" hidden>
+      <div class="cabecera-vista">
+        <h1>Noticias</h1>
+        <div class="acciones">
+          <span class="estado" id="estado-noticia" role="status"></span>
+          <button class="boton" id="b-act-noticia">Actualizar</button>
+          <button class="boton primario" id="b-ana-noticia">Analizar con IA</button>
+        </div>
+      </div>
+      <div class="filtros" id="filtros-noticia"></div>
+      <div class="dos-columnas">
+        <div class="feed" id="feed-noticia"></div>
+        <aside class="balance">
+          <h2>Balance de noticias · 72 h</h2>
+          <div id="balance"></div>
+          <p class="legal">Estimaciones de un modelo a partir de noticias, sin validar contra resultados reales. No son asesoramiento financiero: Radar no conoce tu situación y puede equivocarse.</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- SOCIAL -->
+    <section class="vista vista-texto" id="v-social" hidden>
+      <div class="cabecera-vista">
+        <h1>Social</h1>
+        <div class="acciones">
+          <span class="estado" id="estado-social" role="status"></span>
+          <button class="boton" id="b-act-social">Actualizar</button>
+          <button class="boton primario" id="b-ana-social">Analizar con IA</button>
+        </div>
+      </div>
+      <p class="nota-vista" id="nota-social"></p>
+      <div class="sentimiento" id="sentimiento"></div>
+      <div class="filtros" id="filtros-social"></div>
+      <div class="feed feed-social" id="feed-social"></div>
+    </section>
+
+    <!-- AJUSTES -->
+    <section class="vista vista-texto vista-ajustes" id="v-ajustes" hidden>
+      <div class="cabecera-vista"><h1>Ajustes</h1></div>
+
+      <form id="form-ajustes" autocomplete="off">
+        <h2>Agente de análisis</h2>
+        <div class="campo">
+          <label for="a-clave">Clave de la API de Anthropic <span class="insignia" id="a-clave-estado"></span></label>
+          <input id="a-clave" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+          <p class="nota">Se crea en <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com</a>. Se guarda solo en este ordenador, fuera de OneDrive, y nunca se vuelve a mostrar.</p>
+        </div>
+        <div class="campo">
+          <label for="a-modelo">Modelo</label>
+          <select id="a-modelo"></select>
+        </div>
+        <div class="campo">
+          <label for="a-max">Items por análisis</label>
+          <input id="a-max" type="number" min="1" max="100" step="1">
+          <p class="nota">Cuantos más, más cobertura y más coste. Coste aproximado acumulado: <b id="a-gasto"></b></p>
+        </div>
+        <label class="casilla"><input id="a-auto" type="checkbox"> Analizar automáticamente las noticias nuevas (gasta saldo sin avisar)</label>
+
+        <h2>Tweets de X</h2>
+        <div class="campo">
+          <label for="a-x">Bearer token de la API de X <span class="insignia" id="a-x-estado"></span></label>
+          <input id="a-x" type="password" placeholder="Opcional" autocomplete="off" spellcheck="false">
+          <p class="nota">X no ofrece lectura gratuita. Sin este token, Social usa StockTwits y Reddit.</p>
+        </div>
+
+        <h2>Cartera</h2>
+        <div class="campo">
+          <label for="a-moneda">Moneda de los totales</label>
+          <select id="a-moneda"><option>EUR</option><option>USD</option><option>GBP</option></select>
+        </div>
+        <button class="boton primario" type="submit">Guardar</button>
+        <span class="estado" id="ajustes-estado" role="status"></span>
+        <p class="nota" id="a-ruta"></p>
+      </form>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="grafica.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

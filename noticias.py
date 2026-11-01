@@ -99,7 +99,9 @@ def _reddit(contenido, tickers):
         url = enlace.get("href") if enlace is not None else ""
         if not titulo or not url or re.search(r"daily|megathread|quarterly thread|rate my portfolio", titulo, re.I):
             continue
-        cuerpo = limpiar(e.findtext(f"{ATOM}content")).replace("submitted by", "").strip()
+        cuerpo = limpiar(e.findtext(f"{ATOM}content"))
+        cuerpo = re.sub(r"submitted by|/u/\S+|to r/\S+|\[link\]|\[comments\]", " ", cuerpo)
+        cuerpo = re.sub(r"\s+", " ", cuerpo).strip()
         categoria = e.find(f"{ATOM}category")
         sub = categoria.get("term") if categoria is not None else "reddit"
         items.append({

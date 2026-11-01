@@ -34,6 +34,7 @@ RELLENO = re.compile(
     re.I,
 )
 FUENTES_RELLENO = {"MarketBeat"}
+MIN_SOCIAL = 80  # un "$NVDA to the moon" no merece una llamada de pago
 
 CATEGORIAS = ["macro", "banco_central", "resultados", "empresa", "sector", "regulacion",
               "geopolitica", "materias_primas", "cripto", "sentimiento"]
@@ -265,7 +266,8 @@ def _coste(uso, modelo):
 
 def _lote(cliente, modelo, contexto, simbolos, pesos, lote):
     alias = {f"n{i}": it for i, it in enumerate(lote, 1)}
-    bloques = "\n".join(_bloque(a, it) for a, it in alias.items())
+    with ThreadPoolExecutor(POR_LOTE) as pool:  # cada bloque descarga su artículo
+        bloques = "\n".join(pool.map(_bloque, alias, alias.values()))
     contenido = f"{contexto}\n\nAnaliza estos {len(lote)} items:\n{bloques}"
     respuesta = _pedir(cliente, modelo, contenido)
     gasto = _coste(respuesta.usage, modelo)
@@ -334,7 +336,12 @@ def _correr(items, tipo):
 def _cola(tipo, limite):
     desde = int(time.time()) - HORAS_PENDIENTES * 3600
     candidatos = datos.pendientes(tipo, limite * 6, desde)
-    relleno = lambda it: it["fuente"] in FUENTES_RELLENO or bool(RELLENO.search(it["titulo"]))
+
+    def relleno(it):
+        if it["tipo"] == "social" and len(it["texto"]) < MIN_SOCIAL:
+            return True
+        return it["fuente"] in FUENTES_RELLENO or bool(RELLENO.search(it["titulo"]))
+
     return sorted(candidatos, key=relleno)[:limite]  # sorted es estable: mantiene el orden por fecha
 
 

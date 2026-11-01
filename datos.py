@@ -172,15 +172,15 @@ def _a_item(fila):
 
 
 def feed(tipo, limite=250):
+    """Lo analizado siempre se conserva: las noticias nuevas sin analizar no deben desplazarlo."""
+    consulta = """SELECT i.*, a.relevante, a.importancia, a.categoria, a.titulo AS titulo_es, a.resumen,
+                         a.novedad, a.impactos, a.senal_buy, a.modelo
+                  FROM items i LEFT JOIN analisis a ON a.item_id = i.id
+                  WHERE i.tipo = ? AND a.item_id IS {} NULL ORDER BY i.fecha DESC LIMIT ?"""
     with _lock:
-        filas = _con.execute(
-            """SELECT i.*, a.relevante, a.importancia, a.categoria, a.titulo AS titulo_es, a.resumen,
-                      a.novedad, a.impactos, a.senal_buy, a.modelo
-               FROM items i LEFT JOIN analisis a ON a.item_id = i.id
-               WHERE i.tipo = ? ORDER BY i.fecha DESC LIMIT ?""",
-            (tipo, limite),
-        ).fetchall()
-    return [_a_item(f) for f in filas]
+        analizadas = _con.execute(consulta.format("NOT"), (tipo, limite)).fetchall()
+        pendientes = _con.execute(consulta.format(""), (tipo, limite)).fetchall()
+    return sorted((_a_item(f) for f in [*analizadas, *pendientes]), key=lambda it: -it["fecha"])
 
 
 def pendientes(tipo, limite, desde):
