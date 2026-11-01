@@ -16,6 +16,7 @@ RUTA_DB = DATOS / "radar.db"
 RUTA_AJUSTES = DATOS / "ajustes.json"
 
 AJUSTES_DEFECTO = {
+    "conexion": "cuenta",  # cuenta = plan de Claude; api = clave de pago por uso
     "anthropic_key": "",
     "x_token": "",
     "modelo": "claude-opus-5-5",

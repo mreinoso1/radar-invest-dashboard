@@ -346,6 +346,23 @@ class Grafica {
 
   ajustar() { this.chart.timeScale().fitContent(); }
 
+  /* Espaciado fijo y no un rango de velas: el rango dependería del ancho actual. */
+  irAlFinal() {
+    const ts = this.chart.timeScale();
+    const colocar = () => {
+      ts.applyOptions({ barSpacing: 6 });
+      ts.scrollToPosition(8, false);
+    };
+    if (ts.width()) return colocar();
+    // En una pestaña en segundo plano aún no hay ancho: se coloca al medirse.
+    const alMedir = (ancho) => {
+      if (!ancho) return;
+      ts.unsubscribeSizeChange(alMedir);
+      colocar();
+    };
+    ts.subscribeSizeChange(alMedir);
+  }
+
   escalaLog(activa) { this.chart.priceScale("right").applyOptions({ mode: activa ? 1 : 0 }); }
 }
 
@@ -851,7 +868,7 @@ class CapaDibujo {
 
   alTeclado(e) {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
-    if (!this.g.el.offsetParent) return;  // la gráfica no está a la vista
+    if (this.envoltura.closest(".en-reposo")) return;  // la gráfica no está a la vista
     if (e.key === "Escape") {
       if (this.borrador || this.herramienta !== "cursor") this.usarHerramienta("cursor");
       else this.seleccionar(null);

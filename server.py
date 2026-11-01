@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import agente
+import cuenta
 import datos
 import mercado
 import noticias
@@ -41,6 +42,8 @@ def ajustes_publicos():
         **publicos,
         "tiene_clave": bool(cfg["anthropic_key"]),
         "tiene_x": bool(cfg["x_token"]),
+        "agente_listo": agente.listo(cfg),
+        "cuenta": cuenta.estado(),
         "modelos": agente.MODELOS,
         "datos_en": str(datos.DATOS),
     }
@@ -112,6 +115,8 @@ def guardar_ajustes(cuerpo):
     for clave in ("anthropic_key", "x_token"):
         if clave in cuerpo:  # vacío = borrar la clave guardada
             cambios[clave] = str(cuerpo[clave]).strip()
+    if cuerpo.get("conexion") in ("cuenta", "api"):
+        cambios["conexion"] = cuerpo["conexion"]
     if cuerpo.get("modelo") in agente.MODELOS:
         cambios["modelo"] = cuerpo["modelo"]
     if cuerpo.get("moneda") in MONEDAS:
@@ -177,7 +182,7 @@ class Manejador(BaseHTTPRequestHandler):
             funcion()
         except ErrorApi as e:
             self._json({"error": e.mensaje}, e.estado)
-        except mercado.ErrorMercado as e:
+        except (mercado.ErrorMercado, cuenta.ErrorCuenta) as e:
             self._json({"error": str(e)}, 502)
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
             pass
@@ -231,6 +236,9 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(datos.sentimiento_social(int(time.time()) - 3 * 86400))
         elif ruta == "/api/agente":
             self._json(agente.estado())
+        elif ruta == "/api/cuenta":
+            cuenta.estado(forzar=True)
+            self._json(ajustes_publicos())
         elif ruta == "/api/dibujos":
             self._json(datos.dibujos(q.get("s", "")))
         else:
@@ -245,6 +253,9 @@ class Manejador(BaseHTTPRequestHandler):
             self._json({"ok": True})
         elif url.path == "/api/ajustes":
             self._json(guardar_ajustes(cuerpo))
+        elif url.path == "/api/cuenta/iniciar":
+            cuenta.iniciar_sesion()
+            self._json({"ok": True})
         elif url.path == "/api/feed/actualizar":
             self._json(actualizar_feed(cuerpo))
         elif url.path == "/api/agente":

@@ -94,7 +94,8 @@ function estado(tipo, texto, error = false) {
 function irA(vista) {
   if (!["mercado", "cartera", "noticias", "social", "ajustes"].includes(vista)) vista = "mercado";
   S.vista = vista;
-  document.querySelectorAll(".vista").forEach((v) => { v.hidden = v.id !== `v-${vista}`; });
+  document.querySelectorAll(".vista-texto").forEach((v) => { v.hidden = v.id !== `v-${vista}`; });
+  $("v-mercado").classList.toggle("en-reposo", vista !== "mercado");
   document.querySelectorAll(".rail a").forEach((a) => {
     if (a.dataset.vista === vista) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
@@ -299,10 +300,7 @@ async function cargarGrafica() {
     if (!info.velas.length) throw new Error("Yahoo no tiene datos para esta temporalidad.");
     S.moneda = info.moneda;
     g.ponerDatos(info, intervalo);
-    // Espaciado fijo y no un rango de velas: el rango se calcula con el ancho actual,
-    // que es 0 si la gráfica se carga mientras otra vista está abierta.
-    g.chart.timeScale().applyOptions({ barSpacing: 6 });
-    g.chart.timeScale().scrollToPosition(8, false);
+    g.irAlFinal();
     pintarCabeceraGrafica(info);
   } catch (e) {
     $("grafica-aviso").textContent = e.message;
@@ -664,7 +662,7 @@ function pintarFiltros(tipo) {
 function vacioFeed(tipo) {
   const f = S.filtro[tipo];
   if (!S.feed[tipo].length) return "Pulsa Actualizar para traer lo último.";
-  if (!S.cfg.tiene_clave && f.modo !== "todas" && f.modo !== "pendientes") return 'El análisis necesita tu clave de Anthropic en <a href="#ajustes">Ajustes</a>. Mientras tanto puedes ver el filtro «Sin analizar».';
+  if (!S.cfg.agente_listo && f.modo !== "todas" && f.modo !== "pendientes") return 'Conecta tu cuenta de Claude en <a href="#ajustes">Ajustes</a> para activar el análisis. Mientras tanto puedes ver el filtro «Sin analizar».';
   if (!S.cartera.filas.length) return 'Añade tus activos en <a href="#cartera">Cartera</a>: el agente analiza cada noticia sobre ellos.';
   return "Nada con este filtro. Pulsa «Analizar con IA» o prueba otro.";
 }
@@ -732,7 +730,7 @@ async function actualizarFeed(tipo, silencioso = false, manual = false) {
     await cargarFeed(tipo);
     const fallos = r.avisos.length ? ` · ${r.avisos.length} ${r.avisos.length === 1 ? "fuente no respondió" : "fuentes no respondieron"}` : "";
     if (!silencioso) estado(tipo, `${r.nuevos} ${r.nuevos === 1 ? "nueva" : "nuevas"}${fallos}`);
-    if (r.nuevos && S.cfg.auto_analizar && S.cfg.tiene_clave && tipo === "noticia") lanzarAnalisis(tipo);
+    if (r.nuevos && S.cfg.auto_analizar && S.cfg.agente_listo && tipo === "noticia") lanzarAnalisis(tipo);
   } catch (e) {
     if (!silencioso) estado(tipo, e.message, true);
   }
@@ -769,7 +767,7 @@ async function vigilarAgente() {
   if (!e) return;
   await cargarFeed(e.tipo);
   S.cfg = await api("/api/ajustes");
-  const coste = `≈ ${e.coste.toFixed(3)} $`;
+  const coste = S.cfg.conexion === "cuenta" ? "con tu plan de Claude" : `≈ ${e.coste.toFixed(3)} $`;
   if (e.error) estado(e.tipo, `${e.error} (${e.hechos} de ${e.total} hechos)`, true);
   else estado(e.tipo, `${e.hechos} analizadas · ${coste}`);
 }
@@ -791,7 +789,9 @@ $("sentimiento").addEventListener("click", (e) => {
 
 function pintarAjustes() {
   const c = S.cfg;
-  $("a-modelo").innerHTML = Object.entries(c.modelos).map(([id, m]) => `<option value="${esc(id)}">${esc(m.nombre)} · ${m.entrada} / ${m.salida} $ por millón de tokens</option>`).join("");
+  $("a-conexion").value = c.conexion;
+  pintarConexion();
+  $("a-modelo").innerHTML = Object.entries(c.modelos).map(([id, m]) => `<option value="${esc(id)}">${esc(m.nombre)} · ${m.entrada} / ${m.salida} $ por millón de tokens en API</option>`).join("");
   $("a-modelo").value = c.modelo;
   $("a-max").value = c.max_analisis;
   $("a-auto").checked = c.auto_analizar;
@@ -806,10 +806,38 @@ function pintarAjustes() {
   $("a-ruta").textContent = `Tus datos están en ${c.datos_en}`;
 }
 
+function pintarConexion() {
+  const conCuenta = $("a-conexion").value === "cuenta", c = S.cfg.cuenta;
+  $("bloque-cuenta").hidden = !conCuenta;
+  $("bloque-api").hidden = conCuenta;
+  $("a-cuenta-estado").textContent = !c.instalado
+    ? "No encuentro Claude Code en este ordenador. Abre la app de Claude una vez o usa una clave de API."
+    : c.conectado ? `● Conectado${c.plan ? ` · plan ${c.plan}` : ""}` : "Sin conectar";
+  $("b-login").hidden = !c.instalado || c.conectado;
+  $("b-comprobar").hidden = !c.instalado || c.conectado;
+}
+
+$("a-conexion").addEventListener("change", pintarConexion);
+$("b-login").addEventListener("click", async () => {
+  try {
+    await enviar("/api/cuenta/iniciar");
+    $("ajustes-estado").textContent = "Completa el inicio de sesión en la ventana que se ha abierto.";
+    $("ajustes-estado").classList.remove("error");
+  } catch (err) {
+    $("ajustes-estado").textContent = err.message;
+    $("ajustes-estado").classList.add("error");
+  }
+});
+$("b-comprobar").addEventListener("click", async () => {
+  S.cfg = await api("/api/cuenta");
+  pintarAjustes();
+  $("ajustes-estado").textContent = S.cfg.cuenta.conectado ? "Cuenta conectada" : "Aún no aparece la sesión iniciada.";
+});
+
 $("form-ajustes").addEventListener("submit", async (e) => {
   e.preventDefault();
   const cuerpo = {
-    modelo: $("a-modelo").value, max_analisis: $("a-max").value,
+    conexion: $("a-conexion").value, modelo: $("a-modelo").value, max_analisis: $("a-max").value,
     auto_analizar: $("a-auto").checked, moneda: $("a-moneda").value,
   };
   if ($("a-clave").value.trim()) cuerpo.anthropic_key = $("a-clave").value;
@@ -830,7 +858,7 @@ $("form-ajustes").addEventListener("submit", async (e) => {
 
 async function arrancar() {
   S.cfg = await api("/api/ajustes");
-  if (!S.cfg.tiene_clave) S.filtro.noticia.modo = "todas";
+  if (!S.cfg.agente_listo) S.filtro.noticia.modo = "todas";
   S.intervalo = leerLocal("radar.intervalo", "1d");
   iniciarGrafica();
   autocompletar($("buscador"), $("sugerencias"), (r) => { $("buscador").value = ""; abrirActivo(r.simbolo); });

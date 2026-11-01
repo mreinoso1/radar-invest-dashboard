@@ -31,7 +31,7 @@
 
   <main>
     <!-- MERCADO -->
-    <section class="vista vista-mercado" id="v-mercado" hidden>
+    <section class="vista vista-mercado en-reposo" id="v-mercado">
       <div class="herramientas" id="herramientas" role="toolbar" aria-label="Herramientas de dibujo"></div>
 
       <div class="centro">
@@ -159,6 +159,19 @@
       <form id="form-ajustes" autocomplete="off">
         <h2>Agente de análisis</h2>
         <div class="campo">
+          <label for="a-conexion">Cómo se conecta</label>
+          <select id="a-conexion">
+            <option value="cuenta">Mi cuenta de Claude (usa los límites de mi plan)</option>
+            <option value="api">Clave de API (pago por uso)</option>
+          </select>
+        </div>
+        <div class="bloque-cuenta" id="bloque-cuenta">
+          <p class="nota" id="a-cuenta-estado"></p>
+          <button class="boton" id="b-login" type="button">Iniciar sesión con Claude</button>
+          <button class="enlace" id="b-comprobar" type="button">Ya he iniciado sesión</button>
+          <p class="nota">El inicio de sesión ocurre en la web de Claude: Radar nunca ve tu contraseña ni tus credenciales.</p>
+        </div>
+        <div class="campo" id="bloque-api">
           <label for="a-clave">Clave de la API de Anthropic <span class="insignia" id="a-clave-estado"></span></label>
           <input id="a-clave" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
           <p class="nota">Se crea en <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com</a>. Se guarda solo en este ordenador, fuera de OneDrive, y nunca se vuelve a mostrar.</p>
@@ -170,9 +183,9 @@
         <div class="campo">
           <label for="a-max">Items por análisis</label>
           <input id="a-max" type="number" min="1" max="100" step="1">
-          <p class="nota">Cuantos más, más cobertura y más coste. Coste aproximado acumulado: <b id="a-gasto"></b></p>
+          <p class="nota">Cuantos más, más cobertura y más consumo. Coste aproximado por API acumulado: <b id="a-gasto"></b></p>
         </div>
-        <label class="casilla"><input id="a-auto" type="checkbox"> Analizar automáticamente las noticias nuevas (gasta saldo sin avisar)</label>
+        <label class="casilla"><input id="a-auto" type="checkbox"> Analizar automáticamente las noticias nuevas (gasta plan o saldo sin avisar)</label>
 
         <h2>Tweets de X</h2>
         <div class="campo">

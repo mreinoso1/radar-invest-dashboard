@@ -12,6 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
+import cuenta
 import datos
 import mercado
 import noticias
@@ -269,26 +270,32 @@ def _lote(cliente, modelo, contexto, simbolos, pesos, lote):
     with ThreadPoolExecutor(POR_LOTE) as pool:  # cada bloque descarga su artículo
         bloques = "\n".join(pool.map(_bloque, alias, alias.values()))
     contenido = f"{contexto}\n\nAnaliza estos {len(lote)} items:\n{bloques}"
+    # Sin cliente de API se usa la cuenta de Claude, que no tiene coste por llamada.
+    resultado = _por_api(cliente, modelo, contenido) if cliente else cuenta.preguntar(SISTEMA, contenido, ESQUEMA, modelo)
+    for bruto in resultado["analisis"]:
+        it = alias.get(bruto["id"])
+        if it:
+            datos.guardar_analisis(it["id"], {**_normalizar(bruto, simbolos, pesos), "modelo": modelo})
+    with _lock:
+        _estado["hechos"] += len(lote)
+
+
+def _por_api(cliente, modelo, contenido):
     respuesta = _pedir(cliente, modelo, contenido)
     gasto = _coste(respuesta.usage, modelo)
     datos.sumar_gasto(gasto)
     with _lock:
         _estado["coste"] += gasto
-
     if respuesta.stop_reason == "refusal":
         raise RuntimeError("Claude rechazó analizar este lote")
     if respuesta.stop_reason == "max_tokens":
         raise RuntimeError("La respuesta se cortó por longitud; prueba con menos items")
-    texto = [b.text for b in respuesta.content if b.type == "text"][-1]
-    for bruto in json.loads(texto)["analisis"]:
-        it = alias.get(bruto["id"])
-        if it:
-            datos.guardar_analisis(it["id"], {**_normalizar(bruto, simbolos, pesos), "modelo": respuesta.model})
-    with _lock:
-        _estado["hechos"] += len(lote)
+    return json.loads([b.text for b in respuesta.content if b.type == "text"][-1])
 
 
 def _mensaje_error(e, anthropic):
+    if anthropic is None:
+        return str(e)
     if isinstance(e, anthropic.AuthenticationError):
         return "La clave de Anthropic no es válida. Revísala en Ajustes."
     if isinstance(e, anthropic.PermissionDeniedError):
@@ -302,18 +309,19 @@ def _mensaje_error(e, anthropic):
     return str(e)
 
 
-def _correr(items, tipo):
-    try:
-        import anthropic
-    except ImportError:
-        with _lock:
-            _estado.update(activo=False, error="Falta la librería: ejecuta  py -m pip install anthropic")
-        return
+def _correr(items, conexion):
+    anthropic = None
     errores = []
     try:
         cfg = datos.ajustes()
         modelo = cfg["modelo"] if cfg["modelo"] in MODELOS else "claude-opus-5-5"
-        cliente = anthropic.Anthropic(api_key=cfg["anthropic_key"])
+        cliente = None
+        if conexion == "api":
+            try:
+                import anthropic
+            except ImportError:
+                raise RuntimeError("Falta la librería: ejecuta  py -m pip install anthropic")
+            cliente = anthropic.Anthropic(api_key=cfg["anthropic_key"])
         posiciones = datos.posiciones()
         contexto, pesos = _contexto(posiciones)
         simbolos = {p["simbolo"] for p in posiciones}
@@ -345,11 +353,19 @@ def _cola(tipo, limite):
     return sorted(candidatos, key=relleno)[:limite]  # sorted es estable: mantiene el orden por fecha
 
 
+def listo(cfg):
+    if cfg["conexion"] == "api":
+        return bool(cfg["anthropic_key"])
+    return cuenta.estado()["conectado"]
+
+
 def analizar(tipo, ids=None):
     """Lanza el análisis en segundo plano. Devuelve un error de texto o None."""
     cfg = datos.ajustes()
-    if not cfg["anthropic_key"]:
-        return "Añade tu clave de Anthropic en Ajustes para activar el agente."
+    if not listo(cfg):
+        if cfg["conexion"] == "api":
+            return "Añade tu clave de Anthropic en Ajustes para activar el agente."
+        return "Inicia sesión con tu cuenta de Claude en Ajustes para activar el agente."
     if not datos.posiciones():
         return "Añade al menos un activo en Cartera: el análisis se hace sobre tus activos."
     items = datos.items_por_id(ids[:POR_LOTE]) if ids else _cola(tipo, int(cfg["max_analisis"]))
@@ -359,5 +375,5 @@ def analizar(tipo, ids=None):
         if _estado["activo"]:
             return "Ya hay un análisis en marcha."
         _estado.update(activo=True, tipo=tipo, hechos=0, total=len(items), coste=0.0, error=None, fin=None)
-    threading.Thread(target=_correr, args=(items, tipo), daemon=True).start()
+    threading.Thread(target=_correr, args=(items, cfg["conexion"]), daemon=True).start()
     return None
