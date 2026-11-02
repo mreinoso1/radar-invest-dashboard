@@ -63,7 +63,8 @@ def iniciar_sesion():
                      creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
 
 
-def preguntar(sistema, contenido, esquema, modelo):
+def preguntar(sistema, contenido, esquema, modelo, esfuerzo="high"):
+    """Devuelve el JSON del esquema o, sin esquema, el texto de la respuesta."""
     exe = ejecutable()
     if not exe:
         raise ErrorCuenta("No encuentro Claude Code en este ordenador.")
@@ -72,9 +73,11 @@ def preguntar(sistema, contenido, esquema, modelo):
     orden = [
         exe, "-p", "--output-format", "json", "--tools", "", "--strict-mcp-config",
         "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "", "--disable-slash-commands",
-        "--no-session-persistence", "--model", modelo, "--effort", "high", "--max-turns", "4",
-        "--system-prompt", sistema, "--json-schema", json.dumps(esquema),
+        "--no-session-persistence", "--model", modelo, "--effort", esfuerzo, "--max-turns", "4",
+        "--system-prompt", sistema,
     ]
+    if esquema:
+        orden += ["--json-schema", json.dumps(esquema)]
     try:
         r = subprocess.run(orden, input=contenido, capture_output=True, text=True, encoding="utf-8",
                            env=_entorno(), cwd=datos.DATOS, timeout=ESPERA_ANALISIS)
@@ -86,6 +89,8 @@ def preguntar(sistema, contenido, esquema, modelo):
         raise ErrorCuenta(f"Claude Code falló: {(r.stderr or r.stdout)[-300:]}")
     if salida.get("is_error"):
         raise ErrorCuenta(_traducir(str(salida.get("result") or salida.get("subtype"))))
+    if not esquema:
+        return str(salida.get("result") or "")
     if not isinstance(salida.get("structured_output"), dict):
         raise ErrorCuenta("Claude no devolvió un análisis válido en este lote.")
     return salida["structured_output"]

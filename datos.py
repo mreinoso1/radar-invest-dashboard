@@ -20,8 +20,10 @@ AJUSTES_DEFECTO = {
     "anthropic_key": "",
     "x_token": "",
     "modelo": "claude-opus-5-5",
+    "modelo_chat": "claude-sonnet-5-5",
     "moneda": "EUR",
     "auto_analizar": False,
+    "resumen_auto": True,
     "max_analisis": 30,
     "gasto_usd": 0.0,
 }
@@ -66,6 +68,20 @@ CREATE TABLE IF NOT EXISTS dibujos (
     simbolo TEXT PRIMARY KEY,
     contenido TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS resumenes (
+    simbolo TEXT PRIMARY KEY,
+    contenido TEXT NOT NULL,       -- resumen del agente (JSON)
+    modelo TEXT NOT NULL,
+    creado INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    simbolo TEXT NOT NULL,
+    rol TEXT NOT NULL,             -- usuario | agente
+    texto TEXT NOT NULL,
+    creado INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_simbolo ON chat (simbolo, id);
 """
 
 _lock = threading.RLock()
@@ -74,6 +90,9 @@ _con.row_factory = sqlite3.Row
 with _lock:
     _con.execute("PRAGMA foreign_keys = ON")
     _con.executescript(ESQUEMA)
+    # evento: id de la noticia que ya cuenta este mismo hecho. Las bases antiguas no lo traen.
+    if "evento" not in {c["name"] for c in _con.execute("PRAGMA table_info(items)")}:
+        _con.execute("ALTER TABLE items ADD COLUMN evento TEXT")
 
 
 def ajustes():
@@ -177,11 +196,20 @@ def feed(tipo, limite=250):
     consulta = """SELECT i.*, a.relevante, a.importancia, a.categoria, a.titulo AS titulo_es, a.resumen,
                          a.novedad, a.impactos, a.senal_buy, a.modelo
                   FROM items i LEFT JOIN analisis a ON a.item_id = i.id
-                  WHERE i.tipo = ? AND a.item_id IS {} NULL ORDER BY i.fecha DESC LIMIT ?"""
+                  WHERE i.tipo = ? AND i.evento IS NULL AND a.item_id IS {} NULL
+                  ORDER BY i.fecha DESC LIMIT ?"""
     with _lock:
         analizadas = _con.execute(consulta.format("NOT"), (tipo, limite)).fetchall()
         pendientes = _con.execute(consulta.format(""), (tipo, limite)).fetchall()
-    return sorted((_a_item(f) for f in [*analizadas, *pendientes]), key=lambda it: -it["fecha"])
+        repetidas = _con.execute(
+            "SELECT evento, fuente, titulo, url FROM items WHERE tipo = ? AND evento IS NOT NULL ORDER BY fecha",
+            (tipo,),
+        ).fetchall()
+    otras = {}
+    for r in repetidas:
+        otras.setdefault(r["evento"], []).append({"fuente": r["fuente"], "titulo": r["titulo"], "url": r["url"]})
+    items = (_a_item(f) for f in [*analizadas, *pendientes])
+    return sorted(({**it, "otras": otras.get(it["id"], [])} for it in items), key=lambda it: -it["fecha"])
 
 
 def pendientes(tipo, limite, desde):
@@ -189,11 +217,41 @@ def pendientes(tipo, limite, desde):
     with _lock:
         filas = _con.execute(
             """SELECT i.* FROM items i LEFT JOIN analisis a ON a.item_id = i.id
-               WHERE i.tipo = ? AND a.item_id IS NULL AND i.fecha >= ?
+               WHERE i.tipo = ? AND a.item_id IS NULL AND i.evento IS NULL AND i.fecha >= ?
                ORDER BY i.fecha DESC LIMIT ?""",
             (tipo, desde, limite),
         ).fetchall()
     return [dict(f, simbolos=json.loads(f["simbolos"])) for f in filas]
+
+
+def eventos_analizados(tipo, limite, desde):
+    """Hechos ya analizados, para reconocer las noticias nuevas que los repiten."""
+    with _lock:
+        filas = _con.execute(
+            """SELECT i.id, i.fuente, i.titulo FROM items i JOIN analisis a ON a.item_id = i.id
+               WHERE i.tipo = ? AND i.evento IS NULL AND i.fecha >= ?
+               ORDER BY i.fecha DESC LIMIT ?""",
+            (tipo, desde, limite),
+        ).fetchall()
+    return [dict(f) for f in filas]
+
+
+def marcar_repetidas(asignacion):
+    """asignacion: {id de la noticia repetida: id de la noticia principal}."""
+    with _lock, _con:
+        _con.executemany("UPDATE items SET evento = ? WHERE id = ?", [(p, i) for i, p in asignacion.items()])
+
+
+def otras_fuentes(ids):
+    marcas = ",".join("?" * len(ids))
+    with _lock:
+        filas = _con.execute(
+            f"SELECT evento, fuente, titulo FROM items WHERE evento IN ({marcas}) ORDER BY fecha", list(ids),
+        ).fetchall()
+    salida = {}
+    for f in filas:
+        salida.setdefault(f["evento"], []).append(f"{f['fuente']}: {f['titulo']}")
+    return salida
 
 
 def items_por_id(ids):
@@ -228,6 +286,43 @@ def sentimiento_social(desde):
             c = cuenta.setdefault(s, {"Bullish": 0, "Bearish": 0})
             c[f["sentimiento"]] = c.get(f["sentimiento"], 0) + 1
     return cuenta
+
+
+def resumen(simbolo):
+    with _lock:
+        fila = _con.execute("SELECT * FROM resumenes WHERE simbolo = ?", (simbolo,)).fetchone()
+    return {**json.loads(fila["contenido"]), "modelo": fila["modelo"], "creado": fila["creado"]} if fila else None
+
+
+def guardar_resumen(simbolo, contenido, modelo):
+    with _lock, _con:
+        _con.execute(
+            "INSERT OR REPLACE INTO resumenes (simbolo, contenido, modelo, creado) VALUES (?, ?, ?, ?)",
+            (simbolo, json.dumps(contenido, ensure_ascii=False), modelo, int(time.time())),
+        )
+
+
+def chat(simbolo, limite=40):
+    with _lock:
+        filas = _con.execute(
+            "SELECT rol, texto, creado FROM chat WHERE simbolo = ? ORDER BY id DESC LIMIT ?", (simbolo, limite),
+        ).fetchall()
+    return [dict(f) for f in reversed(filas)]
+
+
+def guardar_chat(simbolo, mensajes):
+    """mensajes: lista de (rol, texto). La pregunta y su respuesta entran juntas."""
+    ahora = int(time.time())
+    with _lock, _con:
+        _con.executemany(
+            "INSERT INTO chat (simbolo, rol, texto, creado) VALUES (?, ?, ?, ?)",
+            [(simbolo, rol, texto, ahora) for rol, texto in mensajes],
+        )
+
+
+def borrar_chat(simbolo):
+    with _lock, _con:
+        _con.execute("DELETE FROM chat WHERE simbolo = ?", (simbolo,))
 
 
 def dibujos(simbolo):
