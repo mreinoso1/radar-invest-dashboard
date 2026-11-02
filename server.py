@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import agente
+import analista
 import cuenta
 import datos
 import mercado
@@ -117,12 +118,14 @@ def guardar_ajustes(cuerpo):
             cambios[clave] = str(cuerpo[clave]).strip()
     if cuerpo.get("conexion") in ("cuenta", "api"):
         cambios["conexion"] = cuerpo["conexion"]
-    if cuerpo.get("modelo") in agente.MODELOS:
-        cambios["modelo"] = cuerpo["modelo"]
+    for clave in ("modelo", "modelo_chat"):
+        if cuerpo.get(clave) in agente.MODELOS:
+            cambios[clave] = cuerpo[clave]
     if cuerpo.get("moneda") in MONEDAS:
         cambios["moneda"] = cuerpo["moneda"]
-    if "auto_analizar" in cuerpo:
-        cambios["auto_analizar"] = bool(cuerpo["auto_analizar"])
+    for clave in ("auto_analizar", "resumen_auto"):
+        if clave in cuerpo:
+            cambios[clave] = bool(cuerpo[clave])
     if "max_analisis" in cuerpo:
         try:
             cambios["max_analisis"] = max(1, min(100, int(cuerpo["max_analisis"])))
@@ -221,6 +224,8 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(ajustes_publicos())
         elif ruta == "/api/velas":
             self._json(mercado.velas(q.get("s", ""), q.get("i", "1d"), q.get("corto") == "1"))
+        elif ruta == "/api/ficha":
+            self._json(analista.ficha(q.get("s", "")))
         elif ruta == "/api/cotizaciones":
             self._json(mercado.cotizaciones([s for s in q.get("s", "").split(",") if s][:40]))
         elif ruta == "/api/indices":
@@ -262,6 +267,10 @@ class Manejador(BaseHTTPRequestHandler):
             ids = cuerpo.get("ids") if isinstance(cuerpo.get("ids"), list) else None
             error = agente.analizar("social" if cuerpo.get("tipo") == "social" else "noticia", ids)
             self._json({"error": error} if error else {"ok": True})
+        elif url.path == "/api/resumen":
+            self._json(analista.generar_resumen(str(cuerpo.get("simbolo", "")), bool(cuerpo.get("forzar"))))
+        elif url.path == "/api/chat":
+            self._json({"texto": analista.responder(str(cuerpo.get("simbolo", "")), str(cuerpo.get("texto", "")))})
         elif url.path == "/api/dibujos":
             if not q.get("s") or not isinstance(cuerpo, list):
                 raise ErrorApi(400, "Dibujos no válidos")
@@ -273,9 +282,14 @@ class Manejador(BaseHTTPRequestHandler):
     def _delete(self):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
-        if url.path != "/api/cartera" or not q.get("s"):
+        if not q.get("s"):
             raise ErrorApi(404, "No encontrado")
-        datos.borrar_posicion(q["s"])
+        if url.path == "/api/cartera":
+            datos.borrar_posicion(q["s"])
+        elif url.path == "/api/chat":
+            datos.borrar_chat(q["s"])
+        else:
+            raise ErrorApi(404, "No encontrado")
         self._json({"ok": True})
 
 

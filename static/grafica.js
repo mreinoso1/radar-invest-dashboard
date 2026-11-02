@@ -118,7 +118,7 @@ function decimales(precio) {
 /* ---------- Gráfica ---------- */
 
 class Grafica {
-  constructor(contenedor, panel, eventos) {
+  constructor(contenedor, panel, eventos, lienzo) {
     this.el = contenedor;
     this.elPanel = panel;
     this.ev = eventos;
@@ -153,7 +153,13 @@ class Grafica {
     });
     this.chart.subscribeCrosshairMove((p) => this.leyenda(p));
     this.chart.subscribeClick((p) => { if (p.hoveredObjectId) this.ev.alMarcador?.(p.hoveredObjectId); });
-    this.dibujo = new CapaDibujo(this);
+    this.dibujo = new CapaDibujo(this, lienzo);
+  }
+
+  destruir() {
+    this.dibujo.destruir();
+    this.chart.remove();
+    this.sub.remove();
   }
 
   intradia() { return ["1m", "5m", "15m", "1h", "4h"].includes(this.intervalo); }
@@ -206,8 +212,9 @@ class Grafica {
     this.info = info;
     this.intervalo = intervalo;
     this.velas = info.velas;
+    for (const c of [this.chart, this.sub]) c.timeScale().applyOptions({ timeVisible: this.intradia() });
     const ultimo = this.velas.at(-1)?.close;
-    const d = decimales(ultimo);
+    const d = Math.max(info.decimales || 0, decimales(ultimo));  // 1,12 no sirve para un par de divisas
     this.serie.applyOptions({ priceFormat: { type: "price", precision: d, minMove: 10 ** -d } });
     this.serie.setData(this.datosSerie(this.velas));
     this.volumen.setData(this.datosVolumen(this.velas));
@@ -369,9 +376,9 @@ class Grafica {
 /* ---------- Capa de dibujo ---------- */
 
 class CapaDibujo {
-  constructor(g) {
+  constructor(g, lienzo) {
     this.g = g;
-    this.canvas = document.getElementById("capa-dibujo");
+    this.canvas = lienzo;
     this.ctx = this.canvas.getContext("2d");
     this.envoltura = g.el.parentElement;
     this.dibujos = [];
@@ -390,12 +397,27 @@ class CapaDibujo {
     this.sucio = true;
 
     const w = this.envoltura;
-    w.addEventListener("mousedown", (e) => this.alBajar(e), true);
-    window.addEventListener("mousemove", (e) => this.alMover(e), true);
-    window.addEventListener("mouseup", (e) => this.alSubir(e), true);
-    w.addEventListener("dblclick", (e) => this.alDobleClic(e), true);
-    window.addEventListener("keydown", (e) => this.alTeclado(e));
+    this.oyentes = new AbortController();
+    const fin = { signal: this.oyentes.signal };
+    w.addEventListener("mousedown", (e) => this.alBajar(e), { ...fin, capture: true });
+    window.addEventListener("mousemove", (e) => this.alMover(e), { ...fin, capture: true });
+    window.addEventListener("mouseup", (e) => this.alSubir(e), { ...fin, capture: true });
+    w.addEventListener("dblclick", (e) => this.alDobleClic(e), { ...fin, capture: true });
+    window.addEventListener("keydown", (e) => this.alTeclado(e), fin);
     requestAnimationFrame(() => this.bucle());
+  }
+
+  destruir() {
+    this.oyentes.abort();
+    clearTimeout(this.temporizador);
+    this.terminado = true;
+  }
+
+  /* Otro panel con el mismo activo ha cambiado sus dibujos. */
+  recibir(dibujos) {
+    this.dibujos = dibujos;
+    this.seleccionar(null);
+    this.sucio = true;
   }
 
   /* --- Conversión tiempo/precio <-> píxel --- */
@@ -573,6 +595,7 @@ class CapaDibujo {
   /* --- Pintado --- */
 
   bucle() {
+    if (this.terminado) return;
     requestAnimationFrame(() => this.bucle());
     const { chart, serie } = this.g;
     const ts = chart.timeScale();
@@ -783,7 +806,7 @@ class CapaDibujo {
       this.sucio = true;
       return;
     }
-    if (this.herramienta === "cursor" && e.target.closest?.("#grafica-envoltura")) {
+    if (this.herramienta === "cursor" && this.envoltura.contains(e.target)) {
       this.envoltura.classList.toggle("sobre-dibujo", this.dentro(q) && !!this.acierto(q));
     }
   }
@@ -869,6 +892,7 @@ class CapaDibujo {
   alTeclado(e) {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
     if (this.envoltura.closest(".en-reposo")) return;  // la gráfica no está a la vista
+    if (!this.g.ev.esActiva?.()) return;  // el teclado es del panel activo
     if (e.key === "Escape") {
       if (this.borrador || this.herramienta !== "cursor") this.usarHerramienta("cursor");
       else this.seleccionar(null);

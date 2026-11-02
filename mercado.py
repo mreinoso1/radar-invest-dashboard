@@ -136,6 +136,7 @@ def velas(simbolo, intervalo, corto=False):
             "bolsa": meta.get("fullExchangeName") or meta.get("exchangeName") or "",
             "tipo_yahoo": meta.get("instrumentType") or "",
             "precio": meta.get("regularMarketPrice"),
+            "decimales": meta.get("priceHint"),
             "velas": _velas(r, segundos, intervalo == "4h"),
         }
 
@@ -189,7 +190,6 @@ def _sesion_yahoo():
 
 def consenso(simbolo):
     """Precio objetivo de analistas y próximos resultados. No existe para cripto ni para algunos ETF."""
-    global _sesion
 
     def cargar():
         global _sesion

@@ -57,31 +57,45 @@
             </details>
             <button id="b-log" class="boton fino" aria-pressed="false" title="Escala logarítmica">Log</button>
             <button id="b-ajustar" class="boton fino" title="Ver todo el histórico">Ajustar</button>
+            <div class="segmentos disposicion" id="disposicion" role="group" aria-label="Gráficas a la vez"></div>
             <button id="b-tv" class="boton fino" aria-pressed="false" title="Abre el widget oficial de TradingView, con todas sus herramientas. Lo que dibujes ahí no se guarda en Radar.">TradingView</button>
+            <button id="b-lateral" class="boton fino b-lateral" aria-pressed="false" aria-controls="lateral">Analista</button>
           </div>
         </div>
 
-        <div class="grafica-envoltura" id="grafica-envoltura">
-          <div class="grafica" id="grafica"></div>
-          <canvas id="capa-dibujo" aria-hidden="true"></canvas>
-          <div class="leyenda" id="leyenda"></div>
+        <div class="paneles-caja">
+          <div class="paneles" id="paneles" data-disposicion="1"></div>
           <div class="opciones-dibujo" id="opciones-dibujo" hidden>
             <div class="colores" id="colores" role="group" aria-label="Color"></div>
             <div class="segmentos" id="grosores" role="group" aria-label="Grosor"></div>
             <div class="segmentos" id="trazos" role="group" aria-label="Trazo"></div>
             <button class="boton fino" id="b-borrar-dibujo" title="Borrar (Supr)">Borrar</button>
           </div>
-          <div class="grafica-aviso" id="grafica-aviso" hidden></div>
           <div class="tv" id="tv" hidden></div>
         </div>
-        <div class="panel-inferior" id="panel-inferior"></div>
       </div>
 
-      <aside class="lateral">
+      <aside class="lateral" id="lateral">
         <h2>Mis activos</h2>
         <div class="lista-activos" id="lista-activos"></div>
-        <h2 id="lateral-noticias-titulo">Noticias</h2>
-        <div class="lista-noticias" id="lista-noticias-activo"></div>
+        <div class="pestanas" role="tablist" aria-label="Sobre este activo">
+          <button role="tab" id="t-analista" aria-selected="true" aria-controls="p-analista">Analista</button>
+          <button role="tab" id="t-noticias" aria-selected="false" aria-controls="p-noticias"><span id="lateral-noticias-titulo">Noticias</span></button>
+        </div>
+        <section class="pestana" id="p-analista" role="tabpanel" aria-labelledby="t-analista">
+          <div class="analista-cuerpo" id="an-cuerpo">
+            <div id="an-ficha"></div>
+            <div id="an-resumen"></div>
+            <div class="chat" id="an-chat" aria-live="polite"></div>
+          </div>
+          <form class="chat-form" id="an-form" autocomplete="off">
+            <textarea id="an-texto" rows="1" maxlength="2000" placeholder="Pregunta al analista…" aria-label="Pregunta al analista"></textarea>
+            <button class="boton primario" id="an-enviar" type="submit">Enviar</button>
+          </form>
+        </section>
+        <section class="pestana" id="p-noticias" role="tabpanel" aria-labelledby="t-noticias" hidden>
+          <div class="lista-noticias" id="lista-noticias-activo"></div>
+        </section>
       </aside>
     </section>
 
@@ -177,9 +191,15 @@
           <p class="nota">Se crea en <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com</a>. Se guarda solo en este ordenador, fuera de OneDrive, y nunca se vuelve a mostrar.</p>
         </div>
         <div class="campo">
-          <label for="a-modelo">Modelo</label>
+          <label for="a-modelo">Modelo para analizar noticias</label>
           <select id="a-modelo"></select>
         </div>
+        <div class="campo">
+          <label for="a-modelo-chat">Modelo del resumen y el chat</label>
+          <select id="a-modelo-chat"></select>
+          <p class="nota">Se usa mucho más a menudo, así que conviene uno que gaste menos.</p>
+        </div>
+        <label class="casilla"><input id="a-resumen-auto" type="checkbox"> Generar el resumen al abrir un activo (como mucho uno cada 12 horas por activo)</label>
         <div class="campo">
           <label for="a-max">Items por análisis</label>
           <input id="a-max" type="number" min="1" max="100" step="1">
