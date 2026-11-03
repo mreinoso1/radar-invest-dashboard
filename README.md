@@ -9,6 +9,8 @@ measures whether its own signals turn out right.
 
 The interface and the analyst's answers are in Spanish.
 
+![Analyst chat with support and resistance levels drawn on the chart](docs/screenshots/analyst.png)
+
 ## Features
 
 - **Charts**: up to four at once, from 1 minute to 1 month, with lines, zones, trend lines and text.
@@ -22,6 +24,23 @@ The interface and the analyst's answers are in Spanish.
   assets with their correlation, and your positions. It can propose levels and draw them on the chart.
 - **Hit-rate scoreboard**: judges each signal once its horizon ends and reports accuracy with a Wilson
   interval, the Brier score against always saying 50 %, and calibration by bands.
+
+## Screenshots
+
+The portfolio in these screenshots is a made-up example.
+
+**News linked to holdings by mechanism**: falling oil prices hit XOM directly and reach NVDA and BTC
+through inflation and interest rates.
+
+![News analysed against the portfolio](docs/screenshots/news.png)
+
+**Portfolio**
+
+![Portfolio with positions and P&L](docs/screenshots/portfolio.png)
+
+**Up to four charts at once**
+
+![Four charts in a grid](docs/screenshots/multi-chart.png)
 
 ## How it works
 
