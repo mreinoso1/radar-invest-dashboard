@@ -26,6 +26,7 @@
     <a href="#cartera" data-vista="cartera"><svg viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="12.5" rx="2"/><path d="M8.5 7V5.5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2V7M3.5 12.5h17"/></svg>Cartera</a>
     <a href="#noticias" data-vista="noticias"><svg viewBox="0 0 24 24"><path d="M4 5.5h13v13a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2zM17 9.5h3v9a1.5 1.5 0 0 1-3 0M7.5 9h6M7.5 12.5h6M7.5 16h4"/></svg>Noticias</a>
     <a href="#social" data-vista="social"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H10l-4.5 3.5v-3.5H4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>Social</a>
+    <a href="#aciertos" data-vista="aciertos"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="m12 12 7-7M16 5h3v3"/></svg>Aciertos</a>
     <a href="#ajustes" data-vista="ajustes" class="abajo"><svg viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 12h3m4 0h9M4 17h11m4 0h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>Ajustes</a>
   </nav>
 
@@ -145,7 +146,7 @@
         <aside class="balance">
           <h2>Balance de noticias · 72 h</h2>
           <div id="balance"></div>
-          <p class="legal">Estimaciones de un modelo a partir de noticias, sin validar contra resultados reales. No son asesoramiento financiero: Radar no conoce tu situación y puede equivocarse.</p>
+          <p class="legal">Estimaciones de un modelo a partir de noticias; cuánto aciertan lo ves en <a href="#aciertos">Aciertos</a>. No son asesoramiento financiero: Radar no conoce tu situación y puede equivocarse.</p>
         </aside>
       </div>
     </section>
@@ -164,6 +165,40 @@
       <div class="sentimiento" id="sentimiento"></div>
       <div class="filtros" id="filtros-social"></div>
       <div class="feed feed-social" id="feed-social"></div>
+    </section>
+
+    <!-- ACIERTOS -->
+    <section class="vista vista-texto" id="v-aciertos" hidden>
+      <div class="cabecera-vista">
+        <h1>Aciertos del agente</h1>
+        <div class="acciones">
+          <span class="estado" id="estado-aciertos" role="status"></span>
+          <button class="boton" id="b-act-aciertos">Actualizar</button>
+        </div>
+      </div>
+      <p class="nota-vista">Cada señal es el BUY de una noticia sobre un activo. Se juzga al terminar su horizonte (horas: 1 día o la sesión siguiente; días: 7; semanas: 30; meses: 90) contra el precio que el agente tenía delante. Se calcula con precios de Yahoo y no gasta tu plan.</p>
+      <p class="vacio" id="ac-vacio" hidden>Aún no hay señales. Cuando analices noticias con IA, cada efecto sobre uno de tus activos se guarda aquí y se juzga al terminar su horizonte.</p>
+      <div id="ac-contenido">
+        <div class="metricas" id="ac-metricas"></div>
+        <p class="veredicto" id="ac-veredicto"></p>
+        <div class="ac-rejilla">
+          <div class="ac-bloque">
+            <h2>¿Sus probabilidades valen lo que dicen?</h2>
+            <div class="tabla-envoltura"><table class="tabla" id="ac-calibracion"></table></div>
+            <p class="nota">Si está bien calibrado, cuando dice BUY 60 el activo sube cerca del 60 % de las veces. La marca es lo que prometía; la barra, lo que pasó.</p>
+          </div>
+          <div class="ac-bloque">
+            <h2>Por activo</h2>
+            <div class="tabla-envoltura"><table class="tabla" id="ac-activos"></table></div>
+            <h2>Por horizonte</h2>
+            <div class="tabla-envoltura"><table class="tabla" id="ac-horizontes"></table></div>
+          </div>
+        </div>
+        <h2 class="ac-titulo">Señales</h2>
+        <div class="filtros" id="ac-filtros"></div>
+        <div class="tabla-envoltura"><table class="tabla tabla-senales" id="ac-senales"></table></div>
+        <p class="legal">Un buen historial no garantiza los siguientes aciertos, y esto no es asesoramiento financiero. Las señales con BUY entre 46 y 54 no marcan dirección: cuentan para la calidad de las probabilidades, no para los aciertos.</p>
+      </div>
     </section>
 
     <!-- AJUSTES -->

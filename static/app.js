@@ -95,7 +95,7 @@ function estado(tipo, texto, error = false) {
 /* ---------- Navegación ---------- */
 
 function irA(vista) {
-  if (!["mercado", "cartera", "noticias", "social", "ajustes"].includes(vista)) vista = "mercado";
+  if (!["mercado", "cartera", "noticias", "social", "aciertos", "ajustes"].includes(vista)) vista = "mercado";
   S.vista = vista;
   document.querySelectorAll(".vista-texto").forEach((v) => { v.hidden = v.id !== `v-${vista}`; });
   $("v-mercado").classList.toggle("en-reposo", vista !== "mercado");
@@ -105,6 +105,7 @@ function irA(vista) {
   if (vista === "cartera") pintarCartera();
   if (vista === "noticias") pintarFeed("noticia");
   if (vista === "social") { pintarFeed("social"); cargarSentimiento(); }
+  if (vista === "aciertos") cargarAciertos();
   if (vista === "ajustes") pintarAjustes();
 }
 window.addEventListener("hashchange", () => irA(location.hash.slice(1)));
@@ -1149,6 +1150,115 @@ $("form-ajustes").addEventListener("submit", async (e) => {
     $("ajustes-estado").textContent = err.message;
     $("ajustes-estado").classList.add("error");
   }
+});
+
+/* ---------- Aciertos del agente ---------- */
+
+const HORIZONTES = { horas: "Horas", "días": "Días", semanas: "Semanas", meses: "Meses" };
+S.aciertos = null;
+S.filtroAciertos = { estado: "todas", activo: null };
+
+const fechaCorta = (ts) => new Date(ts * 1000).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const pctSimple = (v, dec = 0) => (v === null || v === undefined ? "—" : `${numero(v, dec)} %`);
+
+function faltan(ts) {
+  const s = ts - Date.now() / 1000;
+  if (s <= 3600) return "falta < 1 h";
+  if (s < 86400) return `faltan ${Math.ceil(s / 3600)} h`;
+  return `faltan ${Math.ceil(s / 86400)} d`;
+}
+
+async function cargarAciertos() {
+  $("b-act-aciertos").disabled = true;
+  $("estado-aciertos").textContent = "Comprobando precios…";
+  $("estado-aciertos").classList.remove("error");
+  try {
+    S.aciertos = await api("/api/aciertos");
+    $("estado-aciertos").textContent = "";
+    pintarAciertos();
+  } catch (e) {
+    $("estado-aciertos").textContent = e.message;
+    $("estado-aciertos").classList.add("error");
+  } finally {
+    $("b-act-aciertos").disabled = false;
+  }
+}
+
+function pintarAciertos() {
+  const a = S.aciertos;
+  if (!a) return;
+  const r = a.resumen;
+  $("ac-vacio").hidden = r.total > 0;
+  $("ac-contenido").hidden = r.total === 0;
+  if (!r.total) return;
+  const intervalo = r.intervalo ? `entre ${numero(r.intervalo[0], 0)} y ${numero(r.intervalo[1], 0)} % (margen 95 %)` : "sin señales con dirección";
+  const vsMoneda = r.habilidad === null ? null : r.habilidad * 100;
+  $("ac-metricas").innerHTML = `
+    <div class="metrica"><span>Señales resueltas</span><b>${r.resueltas}</b><small>${r.pendientes} pendientes · ${r.efectivas} en días distintos</small></div>
+    <div class="metrica"><span>Aciertos de dirección</span><b>${pctSimple(r.acierto)}</b><small>${r.aciertos} de ${r.con_direccion} · ${intervalo}</small></div>
+    <div class="metrica"><span>Decir siempre «sube»</span><b>${pctSimple(r.siempre_sube)}</b><small>en esas mismas señales</small></div>
+    <div class="metrica"><span>Calidad de las probabilidades</span><b class="${claseVar(vsMoneda)}">${pct(vsMoneda)}</b><small>frente a decir siempre 50 %</small></div>
+    <div class="metrica"><span>Movimiento a favor</span><b class="${claseVar(r.a_favor)}">${pct(r.a_favor)}</b><small>media por señal con dirección</small></div>`;
+  $("ac-veredicto").textContent = r.veredicto;
+
+  $("ac-calibracion").innerHTML = `<thead><tr><th>Cuando dijo BUY</th><th>Señales</th><th>Prometía</th><th>Subió de verdad</th></tr></thead>
+  <tbody>${a.calibracion.map((c) => `<tr>
+    <td>${esc(c.tramo)}</td><td>${c.n}</td><td>${pctSimple(c.prob_media)}</td>
+    <td>${c.n ? `<span class="calibre" title="Prometía ${numero(c.prob_media, 0)} %, subió ${numero(c.subio_pct, 0)} %"><i><u style="width:${c.subio_pct.toFixed(1)}%"></u><s style="left:${c.prob_media.toFixed(1)}%"></s></i>${pctSimple(c.subio_pct)}</span>` : "—"}</td>
+  </tr>`).join("")}</tbody>`;
+
+  const filaAcierto = (nombre, g, extra = "") => `<tr><td>${nombre}</td><td>${g.n}</td><td>${g.n ? `${g.aciertos} · ${pctSimple(g.pct)}` : "—"}</td>${extra}</tr>`;
+  $("ac-activos").innerHTML = `<thead><tr><th>Activo</th><th>Con dirección</th><th>Aciertos</th><th>Pendientes</th></tr></thead>
+    <tbody>${a.por_activo.map((g) => filaAcierto(`<button class="activo" data-abrir="${esc(g.simbolo)}"><b>${esc(g.simbolo)}</b></button>`, g, `<td>${g.pendientes}</td>`)).join("")}</tbody>`;
+  $("ac-horizontes").innerHTML = `<thead><tr><th>Horizonte</th><th>Con dirección</th><th>Aciertos</th></tr></thead>
+    <tbody>${a.por_horizonte.map((g) => filaAcierto(esc(HORIZONTES[g.horizonte] || g.horizonte), g)).join("")}</tbody>`;
+  pintarSenales();
+}
+
+function pintarSenales() {
+  const a = S.aciertos, f = S.filtroAciertos;
+  const simbolos = [...new Set(a.senales.map((s) => s.simbolo))].sort();
+  const chip = (attr, valor, texto, activo) => `<button class="chip" ${attr}="${esc(valor)}" aria-pressed="${activo}">${esc(texto)}</button>`;
+  $("ac-filtros").innerHTML = [["todas", "Todas"], ["resuelta", "Resueltas"], ["pendiente", "Pendientes"]]
+    .map(([v, t]) => chip("data-estado", v, t, f.estado === v)).join("")
+    + `<span class="sep"></span>` + chip("data-activo", "", "Todos", !f.activo)
+    + simbolos.map((s) => chip("data-activo", s, s, f.activo === s)).join("");
+  const lista = a.senales.filter((s) => (f.estado === "todas" || s.estado === f.estado) && (!f.activo || s.simbolo === f.activo));
+  const resultado = (s) => {
+    if (s.estado === "pendiente") return `<span class="neutro">${faltan(s.objetivo)}</span>`;
+    if (s.estado === "sin_datos") return `<span class="neutro">Sin precios</span>`;
+    if (s.acierto === true) return `<span class="sube">✓ Acierto</span>`;
+    if (s.acierto === false) return `<span class="baja">✗ Fallo</span>`;
+    return `<span class="neutro">${s.direccion === "neutro" ? "Sin dirección" : "Empate"}</span>`;
+  };
+  $("ac-senales").innerHTML = `<thead><tr><th>Emitida</th><th>Activo</th><th>Noticia</th><th>BUY</th><th>Horizonte</th><th>Entrada</th><th>Salida o ahora</th><th>Movimiento</th><th>Resultado</th></tr></thead>
+  <tbody>${lista.length ? lista.map((s) => {
+    const precio = s.estado === "resuelta" ? s.salida : s.entrada && s.movimiento !== null ? s.entrada * (1 + s.movimiento / 100) : null;
+    return `<tr>
+      <td>${fechaCorta(s.creado)}</td>
+      <td><button class="activo" data-abrir="${esc(s.simbolo)}"><b>${esc(s.simbolo)}</b></button></td>
+      <td class="ac-noticia"><a href="${esc(enlaceSeguro(s.url))}" target="_blank" rel="noopener noreferrer" title="${esc(s.titulo)}">${esc(s.titulo)}</a></td>
+      <td class="${s.direccion === "sube" ? "sube" : s.direccion === "baja" ? "baja" : "neutro"}">${s.buy_pct}</td>
+      <td>${esc(HORIZONTES[s.horizonte] || s.horizonte)}</td>
+      <td>${s.entrada ? precioTxt(s.entrada) : "—"}</td>
+      <td>${precio ? precioTxt(precio) : "—"}</td>
+      <td class="${claseVar(s.movimiento)}">${pct(s.movimiento)}</td>
+      <td>${resultado(s)}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="9" class="vacio-mini">No hay señales con este filtro.</td></tr>`}</tbody>`;
+}
+
+$("b-act-aciertos").addEventListener("click", cargarAciertos);
+$("ac-filtros").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-estado],[data-activo]");
+  if (!b) return;
+  if (b.dataset.estado !== undefined) S.filtroAciertos.estado = b.dataset.estado;
+  if (b.dataset.activo !== undefined) S.filtroAciertos.activo = b.dataset.activo || null;
+  pintarSenales();
+});
+$("v-aciertos").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-abrir]");
+  if (b) abrirActivo(b.dataset.abrir);
 });
 
 /* ---------- Arranque ---------- */

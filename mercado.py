@@ -143,6 +143,20 @@ def velas(simbolo, intervalo, corto=False):
     return _cacheado(("velas", simbolo, intervalo, corto), 4 if corto else 20, cargar)
 
 
+def horas(simbolo, desde):
+    """Cierres horarios sin retocar desde `desde`, para comprobar señales: (desfase, [(inicio, cierre)])."""
+    dias = (time.time() - desde) / 86400
+    rango = next((r for d, r in ((25, "1mo"), (85, "3mo"), (175, "6mo")) if dias < d), "1y")
+
+    def cargar():
+        r = _grafico(simbolo, "60m", rango)
+        cierres = ((r.get("indicators", {}).get("quote") or [{}])[0].get("close")) or []
+        filas = [(t, c) for t, c in zip(r.get("timestamp") or [], cierres) if c is not None]
+        return (r.get("meta") or {}).get("gmtoffset") or 0, filas
+
+    return _cacheado(("horas", simbolo, rango), 900, cargar)
+
+
 def cotizacion(simbolo):
     def cargar():
         r = _grafico(simbolo, "1d", "5d")

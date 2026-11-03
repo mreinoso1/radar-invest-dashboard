@@ -273,6 +273,17 @@ def guardar_analisis(item_id, a):
         )
 
 
+def senales():
+    """Análisis que se le enseñaron al usuario como relevantes, con sus impactos por activo."""
+    with _lock:
+        filas = _con.execute(
+            """SELECT a.item_id, a.titulo, a.impactos, a.modelo, a.creado, i.tipo, i.fuente, i.url, i.fecha
+               FROM analisis a JOIN items i ON i.id = a.item_id
+               WHERE a.relevante = 1 ORDER BY a.creado DESC""",
+        ).fetchall()
+    return [dict(f, impactos=json.loads(f["impactos"])) for f in filas]
+
+
 def sentimiento_social(desde):
     """Recuento alcista/bajista de StockTwits por activo."""
     with _lock:

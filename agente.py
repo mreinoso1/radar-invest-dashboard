@@ -233,7 +233,8 @@ def _contexto(posiciones):
     texto = (f"<fecha>{ahora:%Y-%m-%d %H:%M}</fecha>\n"
              "<cartera>\n" + "\n".join(filas) + "\n</cartera>\n"
              "<mercado>\n" + "; ".join(indices) + "\n</mercado>")
-    return texto, pesos
+    precios = {s: c.get("precio") for s, c in cotiz.items()}
+    return texto, pesos, precios
 
 
 def _bloque(alias, it, otras=()):
@@ -268,8 +269,11 @@ def _acotar(valor, bajo, alto):
     return max(bajo, min(alto, int(valor)))
 
 
-def _normalizar(bruto, simbolos, pesos):
-    """Valida lo que el esquema no puede expresar, como rangos y símbolos conocidos."""
+def _normalizar(bruto, simbolos, pesos, precios):
+    """Valida lo que el esquema no puede expresar, como rangos y símbolos conocidos.
+
+    precio: la cotización que el agente tenía delante. prob_subida se refiere a ella, y el
+    marcador de aciertos la usa como punto de partida."""
     impactos = []
     for i in bruto["impactos"]:
         if i["simbolo"] not in simbolos:
@@ -285,6 +289,7 @@ def _normalizar(bruto, simbolos, pesos):
             "horizonte": i["horizonte"],
             "mecanismo": i["mecanismo"],
             "invalidacion": i["invalidacion"],
+            "precio": precios.get(i["simbolo"]),
         })
     relevante = bool(bruto["relevante"] and impactos)
     # Señal global: lo que pesa más en la cartera y lo que el agente ve más claro cuenta más.
@@ -308,7 +313,7 @@ def _coste(uso, modelo):
     return (entrada * precio["entrada"] + (uso.output_tokens or 0) * precio["salida"]) / 1_000_000
 
 
-def _lote(cliente, modelo, contexto, simbolos, pesos, lote):
+def _lote(cliente, modelo, contexto, simbolos, pesos, precios, lote):
     alias = {f"n{i}": it for i, it in enumerate(lote, 1)}
     otras = datos.otras_fuentes([it["id"] for it in lote])
     with ThreadPoolExecutor(POR_LOTE) as pool:  # cada bloque descarga su artículo
@@ -319,7 +324,7 @@ def _lote(cliente, modelo, contexto, simbolos, pesos, lote):
     for bruto in resultado["analisis"]:
         it = alias.get(bruto["id"])
         if it:
-            datos.guardar_analisis(it["id"], {**_normalizar(bruto, simbolos, pesos), "modelo": modelo})
+            datos.guardar_analisis(it["id"], {**_normalizar(bruto, simbolos, pesos, precios), "modelo": modelo})
     with _lock:
         _estado["hechos"] += len(lote)
 
@@ -419,13 +424,13 @@ def _correr(items, limite):
             with _lock:
                 _estado["total"] = len(items)
         posiciones = datos.posiciones()
-        contexto, pesos = _contexto(posiciones)
+        contexto, pesos, precios = _contexto(posiciones)
         simbolos = {p["simbolo"] for p in posiciones}
         lotes = [items[i:i + POR_LOTE] for i in range(0, len(items), POR_LOTE)]
 
         def seguro(lote):
             try:
-                _lote(cliente, modelo, contexto, simbolos, pesos, lote)
+                _lote(cliente, modelo, contexto, simbolos, pesos, precios, lote)
             except Exception as e:
                 errores.append(_mensaje_error(e, anthropic))
 

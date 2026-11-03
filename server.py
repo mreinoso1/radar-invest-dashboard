@@ -19,6 +19,7 @@ import agente
 import analista
 import cuenta
 import datos
+import marcador
 import mercado
 import noticias
 
@@ -241,6 +242,8 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(datos.sentimiento_social(int(time.time()) - 3 * 86400))
         elif ruta == "/api/agente":
             self._json(agente.estado())
+        elif ruta == "/api/aciertos":
+            self._json(marcador.calcular())
         elif ruta == "/api/cuenta":
             cuenta.estado(forzar=True)
             self._json(ajustes_publicos())
