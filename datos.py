@@ -19,6 +19,10 @@ AJUSTES_DEFECTO = {
     "conexion": "cuenta",  # cuenta = plan de Claude; api = clave de pago por uso
     "anthropic_key": "",
     "x_token": "",
+    "kraken_key": "",          # claves de solo consulta: Radar nunca opera
+    "kraken_secret": "",
+    "kraken_fut_key": "",
+    "kraken_fut_secret": "",
     "modelo": "claude-opus-5-5",
     "modelo_chat": "claude-sonnet-5-5",
     "moneda": "EUR",
@@ -93,6 +97,9 @@ with _lock:
     # evento: id de la noticia que ya cuenta este mismo hecho. Las bases antiguas no lo traen.
     if "evento" not in {c["name"] for c in _con.execute("PRAGMA table_info(items)")}:
         _con.execute("ALTER TABLE items ADD COLUMN evento TEXT")
+    # extra: dibujos que el analista propone con su respuesta (JSON).
+    if "extra" not in {c["name"] for c in _con.execute("PRAGMA table_info(chat)")}:
+        _con.execute("ALTER TABLE chat ADD COLUMN extra TEXT")
 
 
 def ajustes():
@@ -316,18 +323,19 @@ def guardar_resumen(simbolo, contenido, modelo):
 def chat(simbolo, limite=40):
     with _lock:
         filas = _con.execute(
-            "SELECT rol, texto, creado FROM chat WHERE simbolo = ? ORDER BY id DESC LIMIT ?", (simbolo, limite),
+            "SELECT rol, texto, creado, extra FROM chat WHERE simbolo = ? ORDER BY id DESC LIMIT ?", (simbolo, limite),
         ).fetchall()
-    return [dict(f) for f in reversed(filas)]
+    return [dict(f, dibujos=json.loads(f["extra"] or "[]")) for f in reversed(filas)]
 
 
 def guardar_chat(simbolo, mensajes):
-    """mensajes: lista de (rol, texto). La pregunta y su respuesta entran juntas."""
+    """mensajes: lista de (rol, texto, dibujos). La pregunta y su respuesta entran juntas."""
     ahora = int(time.time())
     with _lock, _con:
         _con.executemany(
-            "INSERT INTO chat (simbolo, rol, texto, creado) VALUES (?, ?, ?, ?)",
-            [(simbolo, rol, texto, ahora) for rol, texto in mensajes],
+            "INSERT INTO chat (simbolo, rol, texto, creado, extra) VALUES (?, ?, ?, ?, ?)",
+            [(simbolo, rol, texto, ahora, json.dumps(dibujos, ensure_ascii=False) if dibujos else None)
+             for rol, texto, dibujos in mensajes],
         )
 
 

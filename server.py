@@ -20,6 +20,7 @@ import agente
 import analista
 import cuenta
 import datos
+import kraken
 import marcador
 import mercado
 import noticias
@@ -28,6 +29,7 @@ HOST, PORT = "127.0.0.1", int(os.environ.get("RADAR_PUERTO", 8770))
 STATIC = Path(__file__).resolve().parent / "static"
 HOSTS_VALIDOS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 MONEDAS = ("EUR", "USD", "GBP")
+SECRETOS = ("anthropic_key", "x_token", "kraken_key", "kraken_secret", "kraken_fut_key", "kraken_fut_secret")
 
 
 class ErrorApi(Exception):
@@ -40,11 +42,13 @@ class ErrorApi(Exception):
 def ajustes_publicos():
     """Nunca devuelve las claves al navegador, solo si existen."""
     cfg = datos.ajustes()
-    publicos = {k: v for k, v in cfg.items() if k not in ("anthropic_key", "x_token")}
+    publicos = {k: v for k, v in cfg.items() if k not in SECRETOS}
     return {
         **publicos,
         "tiene_clave": bool(cfg["anthropic_key"]),
         "tiene_x": bool(cfg["x_token"]),
+        "tiene_kraken": bool(cfg["kraken_key"] and cfg["kraken_secret"]),
+        "tiene_kraken_fut": bool(cfg["kraken_fut_key"] and cfg["kraken_fut_secret"]),
         "agente_listo": agente.listo(cfg),
         "cuenta": cuenta.estado(),
         "modelos": agente.MODELOS,
@@ -115,7 +119,7 @@ def guardar_posicion(cuerpo):
 
 def guardar_ajustes(cuerpo):
     cambios = {}
-    for clave in ("anthropic_key", "x_token"):
+    for clave in SECRETOS:
         if clave in cuerpo:  # vacío = borrar la clave guardada
             cambios[clave] = str(cuerpo[clave]).strip()
     if cuerpo.get("conexion") in ("cuenta", "api"):
@@ -187,7 +191,7 @@ class Manejador(BaseHTTPRequestHandler):
             funcion()
         except ErrorApi as e:
             self._json({"error": e.mensaje}, e.estado)
-        except (mercado.ErrorMercado, cuenta.ErrorCuenta) as e:
+        except (mercado.ErrorMercado, cuenta.ErrorCuenta, kraken.ErrorKraken) as e:
             self._json({"error": str(e)}, 502)
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
             pass
@@ -245,6 +249,8 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(agente.estado())
         elif ruta == "/api/aciertos":
             self._json(marcador.calcular())
+        elif ruta == "/api/kraken":
+            self._json(kraken.resumen(q.get("forzar") == "1"))
         elif ruta == "/api/cuenta":
             cuenta.estado(forzar=True)
             self._json(ajustes_publicos())
