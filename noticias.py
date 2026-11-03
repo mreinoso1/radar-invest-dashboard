@@ -201,6 +201,18 @@ def _unir(items):
     return list(unicos.values())
 
 
+def _tareas_activo(simbolo, nombre, cripto, dias):
+    # "Hyperliquid Strategies Inc." o "Bitcoin USD": con el sufijo entre comillas, Google casi no encuentra nada.
+    nombre = re.sub(r"[,.]?\s+(Inc|Corp|Corporation|Ltd|plc|S\.?A|SE|AG|NV|Co|USD|EUR)\.?$", "", nombre, flags=re.I).strip()
+    consulta = f'"{nombre}" {"crypto" if cripto else "stock"} when:{dias}d'
+    return [
+        (f"Yahoo {simbolo}", lambda: _rss(
+            pedir(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={quote_plus(simbolo)}&region=US&lang=en-US"),
+            "Yahoo Finance", [simbolo])),
+        (f"Google {simbolo}", lambda: _rss(pedir(google(consulta)), None, [simbolo])),
+    ]
+
+
 def actualizar_noticias():
     posiciones = datos.posiciones()
     tareas = [
@@ -208,14 +220,16 @@ def actualizar_noticias():
         for fuente, url in GENERALES
     ]
     for p in posiciones:
-        s = p["simbolo"]
-        tareas.append((f"Yahoo {s}", lambda s=s: _rss(
-            pedir(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={quote_plus(s)}&region=US&lang=en-US"),
-            "Yahoo Finance", [s])))
-        consulta = f'"{p["nombre"]}" {"crypto" if p["tipo"] == "cripto" else "stock"} when:3d'
-        tareas.append((f"Google {s}", lambda c=consulta, s=s: _rss(pedir(google(c)), None, [s])))
+        tareas += _tareas_activo(p["simbolo"], p["nombre"], p["tipo"] == "cripto", 3)
     items, avisos = _lanzar(tareas)
     return {"nuevos": datos.guardar_items(_unir(items)), "avisos": avisos}
+
+
+def del_activo(simbolo, nombre, cripto):
+    """Titulares de un activo buscados al momento, sin guardarlos: sirve también para los que no están en
+    la cartera, que el feed no sigue."""
+    items, _ = _lanzar(_tareas_activo(simbolo, nombre, cripto, 7))
+    return sorted(_unir(items), key=lambda it: -it["fecha"])
 
 
 def actualizar_social(incluir_x=False):

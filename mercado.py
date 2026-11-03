@@ -272,7 +272,7 @@ def ficha(simbolo):
     dias_ano = 365 if info["tipo_yahoo"] == "CRYPTOCURRENCY" else 252
     return {
         "simbolo": simbolo, "nombre": info["nombre"], "moneda": info["moneda"], "bolsa": info["bolsa"],
-        "precio": precio,
+        "cripto": info["tipo_yahoo"] == "CRYPTOCURRENCY", "precio": precio,
         "rendimientos": {
             "1 día": (precio / cierres[-2] - 1) * 100, "1 semana": desde(ultimo - 7 * 86400),
             "1 mes": desde(ultimo - 30 * 86400), "3 meses": desde(ultimo - 91 * 86400),
