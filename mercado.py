@@ -236,6 +236,49 @@ def consenso(simbolo):
     return _cacheado(("consenso", simbolo), 21600, cargar)
 
 
+def perfil(simbolo):
+    """Qué es el activo según Yahoo: a qué se dedica la empresa, o qué es el token."""
+
+    def cargar():
+        global _sesion
+        try:
+            abridor, crumb = _sesion_yahoo()
+            url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{quote(simbolo, safe='')}?"
+                   + urlencode({"modules": "assetProfile", "crumb": crumb}))
+            p = json.loads(abridor.open(url, timeout=10).read())["quoteSummary"]["result"][0].get("assetProfile") or {}
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                _sesion = None
+            return ""
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError, TypeError):
+            return ""
+        if p.get("longBusinessSummary"):
+            return p["longBusinessSummary"][:700]
+        # De las cripto da el suministro y un precio viejo: solo sirve la primera frase.
+        return (p.get("description") or "").split(". ")[0][:300]
+
+    return _cacheado(("perfil", simbolo), 86400, cargar)
+
+
+def cierres(simbolo):
+    """Cierres diarios de los últimos seis meses por día, para comparar activos entre sí."""
+    return _cacheado(("cierres", simbolo), 3600,
+                     lambda: {b["time"]: b["close"] for b in _velas(_grafico(simbolo, "1d", "6mo"), 86400, False)})
+
+
+def correlacion(a, b, dias=90):
+    """Cuánto se mueven juntos: correlación de los rendimientos diarios y cuánto se mueve b, de media, por
+    cada 1 % de a. Solo cuenta los días en que cotizan los dos."""
+    ca, cb = cierres(a), cierres(b)
+    comunes = sorted(set(ca) & set(cb))[-(dias + 1):]
+    ra = [math.log(ca[y] / ca[x]) for x, y in zip(comunes, comunes[1:])]
+    rb = [math.log(cb[y] / cb[x]) for x, y in zip(comunes, comunes[1:])]
+    if len(ra) < 20 or not statistics.variance(ra) or not statistics.variance(rb):
+        return None
+    return {"dias": len(ra), "correlacion": statistics.correlation(ra, rb),
+            "beta": statistics.covariance(ra, rb) / statistics.variance(ra)}
+
+
 def _rsi(cierres, n=14):
     if len(cierres) <= n:
         return None

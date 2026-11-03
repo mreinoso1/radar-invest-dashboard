@@ -26,13 +26,27 @@ MAX_TITULARES = 20   # titulares del activo en el contexto
 EXTRACTOS = 4        # de los más recientes también se lee el artículo
 MAX_EXTRACTO = 1200
 MAX_MERCADO = 12
+MAX_RELACIONADOS = 5
+MAX_MENCIONADOS = 2
+TITULARES_RELACIONADO = 6
+TICKER = re.compile(r"(?<![\w$])\$?([A-Z]{2,6})\b")
+NO_TICKER = {"USD", "EUR", "ETF", "ETP", "CEO", "CFO", "IPO", "CFTC", "SEC", "FED", "FOMC", "BCE", "UE", "EEUU", "UU",
+             "IA", "AI", "ATR", "RSI", "PER", "PIB", "IPC", "OK", "DEFI", "NFT", "API", "UTC"}
 OTRO_TEMA = re.compile(r"\bI[’']?m an?\b|psycholog|relationship|couples|Social Security|retire(e|es|ment)\b|mortgage"
                        r"|credit cards?\b|\bsenate races?\b|key races", re.I)
 
 REGLAS = """## Reglas
 
-- Usa solo datos del contexto. No inventes cifras, fechas, causas ni declaraciones. Si un dato no está,
-  dilo. Tu conocimiento general sirve para explicar mecanismos, no para aportar hechos recientes.
+- Los hechos recientes (precios, cifras, fechas, noticias, declaraciones) salen solo del contexto: no los
+  inventes y, si falta uno, dilo. Tu conocimiento general sí vale para explicar qué es cada activo, cómo
+  funciona y cómo se relaciona con otros: una empresa que acumula un token, un ETF que lo replica, la red
+  en la que vive. Cuando lo uses, dilo ("por lo que sé") y avisa si puede haber cambiado desde entonces.
+- <relacionados> son activos ligados a este: los que nombra el inversor y los que comparten su nombre.
+  Alguno puede no tener nada que ver; compruébalo con su descripción. La correlación dice cuánto se han
+  movido juntos, no quién mueve a quién: para eso hace falta un mecanismo, como una empresa cuyo activo
+  principal es el token.
+- Habla de lo que has visto ("en las noticias que he revisado", "no he encontrado"), no del contexto, sus
+  etiquetas ni sus bloques.
 - Distingue lo que ha ocurrido de lo que estiman otros y de tu propia lectura. Atribuye las previsiones:
   "los analistas estiman", no "subirá".
 - Un movimiento solo tiene causa si las noticias del contexto la respaldan. Si no, di que no hay una causa
@@ -65,8 +79,8 @@ ha ido y qué cabe esperar, en un texto que se lee en medio minuto.
 {REGLAS}"""
 
 SISTEMA_CHAT = f"""Eres el analista de Radar y conversas con un inversor particular sobre el activo que tiene
-abierto y su cartera. Tienes delante sus datos, sus velas recientes, sus noticias analizadas, el resumen que
-le has dado y, si la ha conectado, lo que tiene en Kraken.
+abierto y su cartera. Tienes delante sus datos, sus velas recientes, sus noticias, los activos ligados a él,
+el resumen que le has dado y, si la ha conectado, lo que tiene en Kraken.
 
 Contesta a lo que pregunta, sin repetir el resumen. Sé breve: lo normal son dos a cinco frases, y más solo
 si lo pide. Escribe en texto plano, sin Markdown ni encabezados. Si la pregunta se sale de lo que permiten
@@ -261,6 +275,82 @@ def _noticias(f):
             f"<mercado_general>\n{chr(10).join(lineas_mercado) or 'Sin titulares recientes.'}\n</mercado_general>")
 
 
+def _buscar(texto):
+    try:
+        return mercado._cacheado(("buscar", texto), 86400, lambda: mercado.buscar(texto))
+    except mercado.ErrorMercado:
+        return []
+
+
+def _candidatos(f, menciones):
+    """Activos ligados a este: los que nombra el inversor y los que comparten su nombre, como la empresa que
+    acumula un token o sus ETF."""
+    propio = lambda t, s: re.match(rf"{t}(\d*-|$)", s)  # HYPE32196-USD es HYPE
+    mencionados = []
+    for t in dict.fromkeys(TICKER.findall(menciones)):
+        if t in NO_TICKER or propio(t, f["simbolo"]):
+            continue
+        r = _buscar(t)
+        elegido = next((x for x in r if propio(t, x["simbolo"])), r[0] if r else None)
+        if elegido:
+            mencionados.append(elegido)
+        if len(mencionados) == MAX_MENCIONADOS:
+            break
+    nombre = noticias.nombre_corto(f["nombre"])
+    primera = nombre.split()[0]
+    # "Hyperliquid Strategies" no encuentra el token; "Hyperliquid" sí.
+    consultas = [nombre] + ([primera] if primera != nombre and len(primera) >= 6 else [])
+    salida, vistos = [], {f["simbolo"]}
+    mismo = lambda x: noticias.nombre_corto(x["nombre"]).lower() == nombre.lower()
+    for x, mencionado in [(x, True) for x in mencionados] + [(x, False) for q in consultas for x in _buscar(q)]:
+        # La misma acción en otra bolsa, los futuros por vencimiento y los tokens que replican acciones no
+        # aportan nada.
+        if x["simbolo"] in vistos or (not mencionado and (mismo(x) or x["tipo"] == "futuro" or "Tokenized" in x["nombre"])):
+            continue
+        vistos.add(x["simbolo"])
+        salida.append({**x, "mencionado": mencionado})
+    return salida[:MAX_RELACIONADOS]
+
+
+def _relacionado(f, x):
+    e = lambda v: html.escape(str(v or ""), quote=False)
+    s = x["simbolo"]
+    lineas = [f"{e(x['nombre'])}, {x['tipo']} en {e(x['bolsa']) or 's/d'}."]
+    que_es = mercado.perfil(s)
+    if que_es:
+        lineas.append(f"Qué es, según Yahoo: {e(que_es)}")
+    try:
+        c = mercado.cierres(s)
+        dias = sorted(c)
+        hace = lambda n: next((c[d] for d in reversed(dias) if d <= dias[-1] - n * 86400), None)
+        lineas.append(f"Último cierre {_num(c[dias[-1]])}; " + "; ".join(
+            f"{k} {_pct((c[dias[-1]] / v - 1) * 100) if v else 's/d'}" for k, v in
+            (("1 día", c[dias[-2]] if len(dias) > 1 else None), ("1 semana", hace(7)), ("1 mes", hace(30)))))
+        r = mercado.correlacion(f["simbolo"], s)
+        if r:
+            lineas.append(f"Frente a {f['simbolo']}, últimos {r['dias']} días en que cotizan los dos: correlación de "
+                          f"rendimientos diarios {r['correlacion']:.2f}; cuando {f['simbolo']} se mueve un 1 %, este se "
+                          f"mueve de media un {r['beta']:.2f} %.")
+    except (mercado.ErrorMercado, IndexError):
+        pass
+    if x["mencionado"]:
+        dia = lambda t: f"{datetime.fromtimestamp(t):%Y-%m-%d}"
+        titulares = [n for n in _externas({"simbolo": s, "nombre": x["nombre"], "cripto": x["tipo"] == "cripto"})
+                     if not agente.RELLENO.search(n["titulo"])][:TITULARES_RELACIONADO]
+        lineas += [f'<noticia fecha="{dia(n["fecha"])}" fuente="{e(n["fuente"])}">{e(n["titulo"])}</noticia>' for n in titulares]
+    mencion = ' mencionado="sí"' if x["mencionado"] else ""
+    return f'<relacionado simbolo="{e(s)}"{mencion}>\n' + "\n".join(lineas) + "\n</relacionado>"
+
+
+def _relacionados(f, menciones=""):
+    candidatos = _candidatos(f, menciones)
+    if not candidatos:
+        return ""
+    with ThreadPoolExecutor(len(candidatos)) as pool:
+        bloques = list(pool.map(lambda x: _relacionado(f, x), candidatos))
+    return "<relacionados>\n" + "\n".join(bloques) + "\n</relacionados>\n"
+
+
 def _velas(simbolo):
     """Velas recientes, para que los niveles salgan de precios y fechas reales y no de memoria."""
     bloques = []
@@ -280,12 +370,15 @@ def _velas(simbolo):
     return "\n".join(bloques)
 
 
-def _contexto(simbolo, f, velas=False):
+def _contexto(simbolo, f, velas=False, menciones=""):
     indices = "; ".join(f"{i['nombre']} {_pct(i['var_dia'])} (5d {_pct(i['var_5d'])})" for i in mercado.indices())
     en_kraken = kraken.para_analista()
-    return (f"<fecha>{datetime.now():%Y-%m-%d %H:%M}</fecha>\n<activo>\n{_bloque_ficha(f)}\n</activo>\n"
+    que_es = mercado.perfil(simbolo)
+    return (f"<fecha>{datetime.now():%Y-%m-%d %H:%M}</fecha>\n<activo>\n{_bloque_ficha(f)}\n"
+            + (f"Qué es, según Yahoo: {html.escape(que_es, quote=False)}\n" if que_es else "") + "</activo>\n"
             f"<posicion>{_posicion(f)}</posicion>\n"
             + (f"<kraken>\n{html.escape(en_kraken, quote=False)}\n</kraken>\n" if en_kraken else "")
+            + _relacionados(f, menciones)
             + (f"{_velas(simbolo)}\n" if velas else "")
             + f"<mercado>{indices}</mercado>\n<noticias>\n{_noticias(f)}\n</noticias>")
 
@@ -372,10 +465,12 @@ def responder(simbolo, pregunta):
         raise cuenta.ErrorCuenta("Escribe una pregunta.")
     resumen = datos.resumen(simbolo)
     previo = json.dumps({k: resumen[k] for k in ESQUEMA_RESUMEN["required"]}, ensure_ascii=False) if resumen else "Aún no lo has dado."
-    historia = "\n".join(f"{'Inversor' if m['rol'] == 'usuario' else 'Analista'}: {m['texto']}"
-                         for m in datos.chat(simbolo, MENSAJES_MEMORIA))
+    mensajes = datos.chat(simbolo, MENSAJES_MEMORIA)
+    historia = "\n".join(f"{'Inversor' if m['rol'] == 'usuario' else 'Analista'}: {m['texto']}" for m in mensajes)
+    # "¿Y cuánto le afecta?" sigue hablando del activo que nombró en el mensaje anterior.
+    menciones = " ".join([pregunta] + [m["texto"] for m in mensajes if m["rol"] == "usuario"][-2:])
     f = mercado.ficha(simbolo)
-    contenido = (f"{_contexto(simbolo, f, velas=True)}\n<resumen_dado>{html.escape(previo, quote=False)}</resumen_dado>\n"
+    contenido = (f"{_contexto(simbolo, f, velas=True, menciones=menciones)}\n<resumen_dado>{html.escape(previo, quote=False)}</resumen_dado>\n"
                  f"<conversacion>\n{html.escape(historia, quote=False)}\n</conversacion>\n\nPregunta del inversor: {pregunta}")
     r = agente.consultar(SISTEMA_CHAT, contenido, ESQUEMA_CHAT, _modelo(), "medium")
     texto = r["texto"].strip()

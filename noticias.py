@@ -201,10 +201,13 @@ def _unir(items):
     return list(unicos.values())
 
 
-def _tareas_activo(simbolo, nombre, cripto, dias):
+def nombre_corto(nombre):
     # "Hyperliquid Strategies Inc." o "Bitcoin USD": con el sufijo entre comillas, Google casi no encuentra nada.
-    nombre = re.sub(r"[,.]?\s+(Inc|Corp|Corporation|Ltd|plc|S\.?A|SE|AG|NV|Co|USD|EUR)\.?$", "", nombre, flags=re.I).strip()
-    consulta = f'"{nombre}" {"crypto" if cripto else "stock"} when:{dias}d'
+    return re.sub(r"[,.]?\s+(Inc|Corp|Corporation|Ltd|plc|S\.?A|SE|AG|NV|Co|USD|EUR)\.?$", "", nombre, flags=re.I).strip()
+
+
+def _tareas_activo(simbolo, nombre, cripto, dias):
+    consulta = f'"{nombre_corto(nombre)}" {"crypto" if cripto else "stock"} when:{dias}d'
     return [
         (f"Yahoo {simbolo}", lambda: _rss(
             pedir(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={quote_plus(simbolo)}&region=US&lang=en-US"),
