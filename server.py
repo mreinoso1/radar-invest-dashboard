@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -261,6 +262,10 @@ class Manejador(BaseHTTPRequestHandler):
             self._json({"ok": True})
         elif url.path == "/api/ajustes":
             self._json(guardar_ajustes(cuerpo))
+        elif url.path == "/api/apagar":
+            # Un Radar nuevo que arranca pide paso; sin esto seguiría contestando el código viejo.
+            self._json({"ok": True})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
         elif url.path == "/api/cuenta/iniciar":
             cuenta.iniciar_sesion()
             self._json({"ok": True})
@@ -296,9 +301,32 @@ class Manejador(BaseHTTPRequestHandler):
         self._json({"ok": True})
 
 
+class Servidor(ThreadingHTTPServer):
+    # En Windows, reutilizar la dirección deja escuchar a dos Radar en el mismo puerto, y contesta el viejo
+    # con su código antiguo: las rutas nuevas dan "No encontrado".
+    allow_reuse_address = False
+    daemon_threads = True
+
+
+def _cerrar_anterior():
+    """Pide al Radar que siga abierto en el puerto que se cierre. Los anteriores a esta versión no saben."""
+    peticion = urllib.request.Request(f"http://{HOST}:{PORT}/api/apagar", data=b"{}", method="POST",
+                                      headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(peticion, timeout=3).read()
+    except OSError:
+        return
+    time.sleep(1.5)
+
+
 def main():
-    servidor = ThreadingHTTPServer((HOST, PORT), Manejador)
-    servidor.daemon_threads = True
+    _cerrar_anterior()
+    try:
+        servidor = Servidor((HOST, PORT), Manejador)
+    except OSError:
+        print(f"El puerto {PORT} está ocupado, seguramente por un Radar antiguo que sigue abierto.\n"
+              "Cierra su ventana negra (o reinicia el ordenador) y vuelve a abrir iniciar.bat.")
+        return
     url = f"http://{HOST}:{PORT}"
     print(f"Radar en {url}  (Ctrl+C para salir)")
     if "--sin-navegador" not in sys.argv:
