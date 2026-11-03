@@ -313,6 +313,13 @@ main { grid-area: main; position: relative; min-width: 0; min-height: 0; overflo
 .acciones-fila { display: flex; gap: 10px; justify-content: flex-end; }
 .vacio { color: var(--texto-3); padding: 28px; text-align: center; border: 1px dashed var(--linea-2); border-radius: 10px; }
 
+/* Kraken */
+.kraken { margin-top: 26px; }
+.kraken .cabecera-vista { margin-bottom: 6px; }
+.kraken .tabla-envoltura { margin-top: 10px; }
+.nota.error { color: var(--baja); }
+.boton-dibujos { display: block; margin-top: 6px; font-size: 12px; }
+
 /* Aciertos */
 .veredicto { margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid var(--acento); background: var(--panel); border-radius: 0 8px 8px 0; font-size: 13.5px; }
 .ac-rejilla { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; margin-bottom: 18px; }

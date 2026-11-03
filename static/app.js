@@ -102,7 +102,7 @@ function irA(vista) {
   document.querySelectorAll(".rail a").forEach((a) => {
     if (a.dataset.vista === vista) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
-  if (vista === "cartera") pintarCartera();
+  if (vista === "cartera") { pintarCartera(); cargarKraken(); }
   if (vista === "noticias") pintarFeed("noticia");
   if (vista === "social") { pintarFeed("social"); cargarSentimiento(); }
   if (vista === "aciertos") cargarAciertos();
@@ -1129,6 +1129,12 @@ function pintarAjustes() {
   $("a-x").placeholder = c.tiene_x ? "Guardado. Escribe otro para cambiarlo" : "Opcional";
   $("a-clave-estado").textContent = c.tiene_clave ? "● Configurada" : "";
   $("a-x-estado").textContent = c.tiene_x ? "● Configurado" : "";
+  for (const id of ["a-kraken-key", "a-kraken-secret", "a-kraken-fut-key", "a-kraken-fut-secret"]) $(id).value = "";
+  $("a-kraken-key").placeholder = c.tiene_kraken ? "Guardada. Escribe otra para cambiarla" : "";
+  $("a-kraken-fut-key").placeholder = c.tiene_kraken_fut ? "Guardada. Escribe otra para cambiarla" : "Opcional";
+  $("a-kraken-estado").textContent = c.tiene_kraken ? "● Conectado" : "";
+  $("a-kraken-fut-estado").textContent = c.tiene_kraken_fut ? "● Conectado" : "";
+  $("b-kraken-quitar").hidden = !c.tiene_kraken && !c.tiene_kraken_fut;
   $("a-gasto").textContent = `${c.gasto_usd.toFixed(3)} $`;
   $("a-ruta").textContent = `Tus datos están en ${c.datos_en}`;
 }
@@ -1170,6 +1176,18 @@ $("form-ajustes").addEventListener("submit", async (e) => {
   };
   if ($("a-clave").value.trim()) cuerpo.anthropic_key = $("a-clave").value;
   if ($("a-x").value.trim()) cuerpo.x_token = $("a-x").value;
+  for (const [pub, priv, cPub, cPriv] of [["a-kraken-key", "a-kraken-secret", "kraken_key", "kraken_secret"],
+    ["a-kraken-fut-key", "a-kraken-fut-secret", "kraken_fut_key", "kraken_fut_secret"]]) {
+    const a = $(pub).value.trim(), b = $(priv).value.trim();
+    if (!a && !b) continue;
+    if (!a || !b) {
+      $("ajustes-estado").textContent = "Kraken necesita la clave pública y la privada juntas.";
+      $("ajustes-estado").classList.add("error");
+      return;
+    }
+    cuerpo[cPub] = a;
+    cuerpo[cPriv] = b;
+  }
   try {
     S.cfg = await enviar("/api/ajustes", cuerpo);
     pintarAjustes();
@@ -1180,6 +1198,61 @@ $("form-ajustes").addEventListener("submit", async (e) => {
     $("ajustes-estado").textContent = err.message;
     $("ajustes-estado").classList.add("error");
   }
+});
+
+$("b-kraken-quitar").addEventListener("click", async () => {
+  if (!confirm("¿Borrar de este ordenador las claves de Kraken?")) return;
+  S.cfg = await enviar("/api/ajustes", { kraken_key: "", kraken_secret: "", kraken_fut_key: "", kraken_fut_secret: "" });
+  pintarAjustes();
+  $("ajustes-estado").textContent = "Kraken desconectado";
+});
+
+/* ---------- Kraken ---------- */
+
+async function cargarKraken(forzar = false) {
+  const conectado = S.cfg.tiene_kraken || S.cfg.tiene_kraken_fut;
+  $("b-kraken").hidden = !conectado;
+  if (!conectado) {
+    $("kraken-cuerpo").innerHTML = '<p class="nota">Conecta tu cuenta de Kraken en <a href="#ajustes">Ajustes</a> para ver aquí lo que tienes allí, con claves de solo consulta. El analista también lo tendrá en cuenta.</p>';
+    return;
+  }
+  $("estado-kraken").textContent = "Consultando Kraken…";
+  $("estado-kraken").classList.remove("error");
+  try {
+    pintarKraken(await api(`/api/kraken${forzar ? "?forzar=1" : ""}`));
+    $("estado-kraken").textContent = "";
+  } catch (e) {
+    $("estado-kraken").textContent = e.message;
+    $("estado-kraken").classList.add("error");
+  }
+}
+
+function pintarKraken(k) {
+  const activo = (f) => f.simbolo
+    ? `<button class="activo" data-abrir="${esc(f.simbolo)}"><b>${esc(f.base)}</b><small>${esc(f.simbolo)}</small></button>`
+    : `<b>${esc(f.base)}</b>`;
+  const errores = k.errores.map((e) => `<p class="nota error">${esc(e)}</p>`).join("");
+  const posiciones = k.posiciones.length ? `<div class="tabla-envoltura"><table class="tabla">
+    <thead><tr><th>Posición abierta</th><th>Lado</th><th>Dónde</th><th>Cantidad</th><th>Entrada</th><th>Resultado (USD)</th></tr></thead>
+    <tbody>${k.posiciones.map((p) => `<tr><td>${activo(p)}</td>
+      <td class="${p.lado === "corto" ? "baja" : "sube"}">${p.lado === "corto" ? "Corto" : "Largo"}</td>
+      <td>${esc(p.mercado === "futuros" ? `Futuros ${p.contrato || ""}` : "Margen")}</td>
+      <td>${numero(p.cantidad, p.cantidad % 1 ? 4 : 0)}</td><td>${precioTxt(p.entrada)}</td>
+      <td class="${claseVar(p.resultado_usd)}">${p.resultado_usd === null ? "—" : `${flecha(p.resultado_usd)} ${numero(p.resultado_usd)}`}</td></tr>`).join("")}</tbody></table></div>` : "";
+  const saldos = k.saldos.length ? `<div class="tabla-envoltura"><table class="tabla">
+    <thead><tr><th>Saldo</th><th>Cantidad</th><th>Precio (USD)</th><th>Valor (USD)</th></tr></thead>
+    <tbody>${k.saldos.map((s) => `<tr><td>${activo(s)}</td><td>${numero(s.cantidad, s.cantidad % 1 ? 6 : 0)}</td>
+      <td>${s.precio_usd ? precioTxt(s.precio_usd) : "—"}</td><td>${s.valor_usd === null ? "—" : numero(s.valor_usd)}</td></tr>`).join("")}</tbody></table></div>` : "";
+  const totales = [`Spot: ${numero(k.valor_spot_usd)} USD`];
+  if (k.valor_futuros_usd !== null) totales.push(`Cuenta de futuros: ${numero(k.valor_futuros_usd)} USD`);
+  $("kraken-cuerpo").innerHTML = `${errores}<p class="nota">${totales.join(" · ")} · actualizado ${hace(k.actualizado)}</p>${posiciones}${saldos}`
+    + (!posiciones && !saldos && !errores ? '<p class="nota">No hay saldos ni posiciones abiertas.</p>' : "");
+}
+
+$("b-kraken").addEventListener("click", () => cargarKraken(true));
+$("kraken-cuerpo").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-abrir]");
+  if (b) abrirActivo(b.dataset.abrir);
 });
 
 /* ---------- Aciertos del agente ---------- */

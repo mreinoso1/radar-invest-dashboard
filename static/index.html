@@ -128,6 +128,17 @@
 
       <div class="tabla-envoltura"><table class="tabla" id="tabla-cartera"></table></div>
       <p class="vacio" id="cartera-vacia" hidden>Aún no tienes activos. Añade el primero arriba: con cantidad 0 lo sigues sin registrar una compra.</p>
+
+      <div class="kraken">
+        <div class="cabecera-vista">
+          <h2>Kraken</h2>
+          <div class="acciones">
+            <span class="estado" id="estado-kraken" role="status"></span>
+            <button class="boton fino" id="b-kraken" hidden>Actualizar</button>
+          </div>
+        </div>
+        <div id="kraken-cuerpo"></div>
+      </div>
     </section>
 
     <!-- NOTICIAS -->
@@ -247,6 +258,26 @@
           <label for="a-x">Bearer token de la API de X <span class="insignia" id="a-x-estado"></span></label>
           <input id="a-x" type="password" placeholder="Opcional" autocomplete="off" spellcheck="false">
           <p class="nota">X no ofrece lectura gratuita. Sin este token, Social usa StockTwits y Reddit.</p>
+        </div>
+
+        <h2>Kraken</h2>
+        <p class="nota">Radar solo consulta: nunca opera ni retira. Crea claves que solo puedan consultar, para que aunque alguien las robara no pudiera mover tu dinero. En Kraken Pro, Ajustes › API: marca solo «Query Funds» y «Query Open Orders &amp; Trades». Si operas perpetuos, crea aparte en Kraken Futures una clave con acceso «Read Only».</p>
+        <div class="campo">
+          <label for="a-kraken-key">Clave pública (spot y margen) <span class="insignia" id="a-kraken-estado"></span></label>
+          <input id="a-kraken-key" type="password" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="campo">
+          <label for="a-kraken-secret">Clave privada (spot y margen)</label>
+          <input id="a-kraken-secret" type="password" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="campo">
+          <label for="a-kraken-fut-key">Clave pública de Kraken Futures <span class="insignia" id="a-kraken-fut-estado"></span></label>
+          <input id="a-kraken-fut-key" type="password" placeholder="Opcional" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="campo">
+          <label for="a-kraken-fut-secret">Clave privada de Kraken Futures</label>
+          <input id="a-kraken-fut-secret" type="password" placeholder="Opcional" autocomplete="off" spellcheck="false">
+          <p class="nota">Se guardan solo en este ordenador, fuera de OneDrive, y nunca se vuelven a mostrar. <button class="enlace" id="b-kraken-quitar" type="button">Desconectar Kraken</button></p>
         </div>
 
         <h2>Cartera</h2>
