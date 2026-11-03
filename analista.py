@@ -7,11 +7,13 @@ import html
 import json
 import threading
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 
 import agente
 import cuenta
 import datos
+import kraken
 import mercado
 
 HORAS_RESUMEN = 12
@@ -40,7 +42,8 @@ ha ido y qué cabe esperar, en un texto que se lee en medio minuto.
 
 - titular: una frase con lo esencial de la situación actual.
 - como_ha_ido: dos o tres frases con la evolución, usando las cifras del contexto. Si el usuario tiene
-  posición, menciona cómo le va a él.
+  posición, en su cartera o en <kraken> (solo si es el mismo activo, no otro con el mismo ticker),
+  menciona cómo le va a él.
 - motivos: una o dos frases con lo que explica ese movimiento según las noticias.
 - que_se_espera: dos o tres frases con lo próximo: resultados, consenso de analistas y catalizadores de
   las noticias. Deja claro de quién es cada expectativa.
@@ -49,13 +52,70 @@ ha ido y qué cabe esperar, en un texto que se lee en medio minuto.
 {REGLAS}"""
 
 SISTEMA_CHAT = f"""Eres el analista de Radar y conversas con un inversor particular sobre el activo que tiene
-abierto y su cartera. Tienes delante sus datos, sus noticias analizadas y el resumen que le has dado.
+abierto y su cartera. Tienes delante sus datos, sus velas recientes, sus noticias analizadas, el resumen que
+le has dado y, si la ha conectado, lo que tiene en Kraken.
 
 Contesta a lo que pregunta, sin repetir el resumen. Sé breve: lo normal son dos a cinco frases, y más solo
 si lo pide. Escribe en texto plano, sin Markdown ni encabezados. Si la pregunta se sale de lo que permiten
 tus datos, dilo y explica qué tendría que mirar.
 
+## Niveles y stops
+
+Si pregunta dónde poner un stop, si salir o cuánto arriesga, no elijas por él. Dale de dos a tres niveles de
+referencia sacados de las velas: el último máximo o mínimo relevante, una zona de soporte o resistencia y
+una distancia de 1 a 2 ATR. Para cada uno, di por qué el mercado lo vigila, qué significaría que se
+rompiera y, si conoces su posición, cuánto perdería o dejaría de ganar ahí. En un corto, el stop protege
+de subidas: va por encima del precio. Termina recordando que dónde salir y cuánto está dispuesto a perder
+lo decide él.
+
+## Kraken
+
+Lo que hay en <kraken> son sus posiciones reales. Comprueba que se trata del mismo activo que está abierto:
+un token y una acción pueden compartir ticker, y entonces son activos distintos con precios distintos. Si
+no coincide, díselo.
+
+## Dibujos
+
+Cuando un nivel, una zona o una tendencia ayuden a ver lo que explicas, añádelos en "dibujos" (como mucho
+seis) y nómbralos en el texto. Usa precios y fechas que existan en las velas del contexto. Si no aportan
+nada, deja la lista vacía.
+- nivel: una línea horizontal en "precio". Deja precio2 en 0 y las fechas vacías.
+- zona: una banda entre "precio" y "precio2" desde "fecha" hasta hoy.
+- tendencia: una recta de ("fecha", "precio") a ("fecha2", "precio2"), dos puntos de las velas.
+- Fechas como en las velas: AAAA-MM-DD, o AAAA-MM-DD HH:MM para las horarias (en hora UTC).
+- color: verde para soportes y objetivos al alza, rojo para resistencias y stops de un largo, ámbar para
+  la entrada o lo neutral, azul para tendencias.
+- etiqueta: dos a cuatro palabras, como "Stop del corto" o "Soporte de octubre".
+
 {REGLAS}"""
+
+ESQUEMA_CHAT = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["texto", "dibujos"],
+    "properties": {
+        "texto": {"type": "string"},
+        "dibujos": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["tipo", "etiqueta", "color", "precio", "precio2", "fecha", "fecha2"],
+                "properties": {
+                    "tipo": {"type": "string", "enum": ["nivel", "zona", "tendencia"]},
+                    "etiqueta": {"type": "string"},
+                    "color": {"type": "string", "enum": ["verde", "rojo", "ambar", "azul"]},
+                    "precio": {"type": "number"},
+                    "precio2": {"type": "number"},
+                    "fecha": {"type": "string"},
+                    "fecha2": {"type": "string"},
+                },
+            },
+        },
+    },
+}
+COLORES = {"verde": "#26c6b0", "rojo": "#ff6a55", "ambar": "#f2b33d", "azul": "#6aa8ff"}
+MAX_DIBUJOS = 6
 
 ESQUEMA_RESUMEN = {
     "type": "object",
@@ -138,11 +198,64 @@ def _noticias(simbolo):
     return "\n".join(analizadas[:12] + titulares[:15]) or "Sin noticias disponibles."
 
 
-def _contexto(simbolo, f):
+def _velas(simbolo):
+    """Velas recientes, para que los niveles salgan de precios y fechas reales y no de memoria."""
+    bloques = []
+    for intervalo, n, formato in (("1d", 90, "%Y-%m-%d"), ("1h", 48, "%Y-%m-%d %H:%M")):
+        try:
+            v = mercado.velas(simbolo, intervalo)["velas"][-n:]
+        except mercado.ErrorMercado:
+            continue
+        p = lambda x: f"{x:.6g}"
+        filas = "\n".join(f"{datetime.fromtimestamp(b['time'], timezone.utc):{formato}} {p(b['open'])} {p(b['high'])} "
+                          f"{p(b['low'])} {p(b['close'])}" for b in v)
+        extra = ""
+        if intervalo == "1d" and len(v) > 15:
+            rangos = [max(b["high"], a["close"]) - min(b["low"], a["close"]) for a, b in zip(v[-15:], v[-14:])]
+            extra = f' atr14="{sum(rangos) / 14:.6g}"'
+        bloques.append(f'<velas intervalo="{intervalo}"{extra} columnas="fecha apertura máximo mínimo cierre">\n{filas}\n</velas>')
+    return "\n".join(bloques)
+
+
+def _contexto(simbolo, f, velas=False):
     indices = "; ".join(f"{i['nombre']} {_pct(i['var_dia'])} (5d {_pct(i['var_5d'])})" for i in mercado.indices())
+    en_kraken = kraken.para_analista()
     return (f"<fecha>{datetime.now():%Y-%m-%d %H:%M}</fecha>\n<activo>\n{_bloque_ficha(f)}\n</activo>\n"
-            f"<posicion>{_posicion(f)}</posicion>\n<mercado>{indices}</mercado>\n"
-            f"<noticias>\n{_noticias(simbolo)}\n</noticias>")
+            f"<posicion>{_posicion(f)}</posicion>\n"
+            + (f"<kraken>\n{html.escape(en_kraken, quote=False)}\n</kraken>\n" if en_kraken else "")
+            + (f"{_velas(simbolo)}\n" if velas else "")
+            + f"<mercado>{indices}</mercado>\n<noticias>\n{_noticias(simbolo)}\n</noticias>")
+
+
+def _fecha(texto):
+    for formato in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return int(datetime.strptime(texto.strip(), formato).replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            pass
+    return None
+
+
+def _dibujos(brutos, precio):
+    """Convierte lo que propone el modelo en dibujos de la gráfica. Descarta lo que no tenga sentido."""
+    ahora = int(time.time())
+    valido = lambda p: precio and 0.2 * precio < p < 5 * precio
+    salida = []
+    for d in brutos[:MAX_DIBUJOS]:
+        base = {"id": uuid.uuid4().hex, "color": COLORES.get(d["color"], COLORES["ambar"]), "grosor": 2, "trazo": 1,
+                "texto": d["etiqueta"].strip()[:40], "analista": True}
+        if not valido(d["precio"]):
+            continue
+        if d["tipo"] == "nivel":
+            salida.append({**base, "tipo": "horizontal", "puntos": [{"t": ahora, "p": d["precio"]}]})
+        elif d["tipo"] == "zona" and valido(d["precio2"]):
+            desde = _fecha(d["fecha"]) or ahora - 30 * 86400
+            salida.append({**base, "tipo": "rect", "puntos": [{"t": desde, "p": d["precio"]}, {"t": ahora, "p": d["precio2"]}]})
+        elif d["tipo"] == "tendencia" and valido(d["precio2"]):
+            t1, t2 = _fecha(d["fecha"]), _fecha(d["fecha2"])
+            if t1 and t2 and t1 != t2 and max(t1, t2) <= ahora + 86400:
+                salida.append({**base, "tipo": "tendencia", "puntos": [{"t": t1, "p": d["precio"]}, {"t": t2, "p": d["precio2"]}]})
+    return salida
 
 
 def _modelo():
@@ -198,10 +311,13 @@ def responder(simbolo, pregunta):
     previo = json.dumps({k: resumen[k] for k in ESQUEMA_RESUMEN["required"]}, ensure_ascii=False) if resumen else "Aún no lo has dado."
     historia = "\n".join(f"{'Inversor' if m['rol'] == 'usuario' else 'Analista'}: {m['texto']}"
                          for m in datos.chat(simbolo, MENSAJES_MEMORIA))
-    contenido = (f"{_contexto(simbolo, mercado.ficha(simbolo))}\n<resumen_dado>{html.escape(previo, quote=False)}</resumen_dado>\n"
+    f = mercado.ficha(simbolo)
+    contenido = (f"{_contexto(simbolo, f, velas=True)}\n<resumen_dado>{html.escape(previo, quote=False)}</resumen_dado>\n"
                  f"<conversacion>\n{html.escape(historia, quote=False)}\n</conversacion>\n\nPregunta del inversor: {pregunta}")
-    texto = agente.consultar(SISTEMA_CHAT, contenido, None, _modelo(), "medium").strip()
+    r = agente.consultar(SISTEMA_CHAT, contenido, ESQUEMA_CHAT, _modelo(), "medium")
+    texto = r["texto"].strip()
     if not texto:
         raise cuenta.ErrorCuenta("Claude no devolvió ninguna respuesta.")
-    datos.guardar_chat(simbolo, [("usuario", pregunta), ("agente", texto)])
-    return texto
+    dibujos = _dibujos(r["dibujos"], f["precio"])
+    datos.guardar_chat(simbolo, [("usuario", pregunta, None), ("agente", texto, dibujos)])
+    return {"texto": texto, "dibujos": dibujos}

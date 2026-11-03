@@ -683,15 +683,38 @@ $("an-resumen").addEventListener("click", (e) => {
   if (e.target.closest("[data-resumen]")) generarResumen(S.simbolo, true);
 });
 
-function mensajeHTML(rol, texto, clase = "") {
-  return `<div class="mensaje ${rol} ${clase}">${esc(texto)}</div>`;
+function mensajeHTML(rol, texto, clase = "", indice = null, dibujos = []) {
+  let boton = "";
+  if (dibujos?.length) {
+    const puestos = dibujosPuestos(dibujos);
+    boton = `<button class="enlace boton-dibujos" data-dibujos="${indice}">${puestos ? "Quitar de la gráfica" : `Ver en la gráfica (${dibujos.length})`}</button>`;
+  }
+  return `<div class="mensaje ${rol} ${clase}">${esc(texto)}${boton}</div>`;
+}
+
+/* Los dibujos del analista se añaden a los del usuario: luego se mueven o borran como cualquier otro. */
+function dibujosPuestos(dibujos) {
+  const capa = panelActivo()?.g.dibujo;
+  return !!capa && panelActivo().simbolo === S.simbolo && dibujos.every((d) => capa.dibujos.some((x) => x.id === d.id));
+}
+
+function alternarDibujos(dibujos) {
+  const p = panelActivo();
+  if (!p || p.simbolo !== S.simbolo) return;
+  const capa = p.g.dibujo, ids = new Set(dibujos.map((d) => d.id));
+  const puestos = dibujosPuestos(dibujos);
+  capa.apuntar();
+  capa.dibujos = capa.dibujos.filter((d) => !ids.has(d.id));
+  if (!puestos) capa.dibujos.push(...structuredClone(dibujos));
+  capa.seleccionar(null);
+  capa.persistir();
 }
 
 function pintarChat(lista) {
   S.chat = lista;
   const sugerencias = S.cfg.agente_listo ? `<div class="chat-sugerencias">${PREGUNTAS.map((p) => `<button class="chip" data-pregunta="${esc(p)}">${esc(p)}</button>`).join("")}</div>` : "";
   $("an-chat").innerHTML = lista.length
-    ? `<div class="chat-cab"><h2>Conversación</h2><button class="enlace" data-borrar-chat>Borrar</button></div>${lista.map((m) => mensajeHTML(m.rol, m.texto)).join("")}`
+    ? `<div class="chat-cab"><h2>Conversación</h2><button class="enlace" data-borrar-chat>Borrar</button></div>${lista.map((m, i) => mensajeHTML(m.rol, m.texto, "", i, m.dibujos)).join("")}`
     : sugerencias;
   $("an-form").hidden = !S.cfg.agente_listo;
   bajarChat();
@@ -710,7 +733,9 @@ async function preguntar(texto) {
   $("an-enviar").disabled = true;
   try {
     const r = await enviar("/api/chat", { simbolo, texto });
-    if (turno === turnoAnalista) pintarChat([...S.chat, { rol: "usuario", texto }, { rol: "agente", texto: r.texto }]);
+    if (turno !== turnoAnalista) return;
+    pintarChat([...S.chat, { rol: "usuario", texto }, { rol: "agente", texto: r.texto, dibujos: r.dibujos }]);
+    if (r.dibujos.length) { alternarDibujos(r.dibujos); pintarChat(S.chat); }
   } catch (e) {
     if (turno !== turnoAnalista) return;
     caja.querySelector(".pensando")?.remove();
@@ -724,6 +749,11 @@ async function preguntar(texto) {
 $("an-chat").addEventListener("click", async (e) => {
   const s = e.target.closest("[data-pregunta]");
   if (s) preguntar(s.dataset.pregunta);
+  const d = e.target.closest("[data-dibujos]");
+  if (d) {
+    alternarDibujos(S.chat[+d.dataset.dibujos].dibujos);
+    pintarChat(S.chat);
+  }
   if (e.target.closest("[data-borrar-chat]") && confirm(`¿Borrar la conversación sobre ${S.simbolo}?`)) {
     await api(`/api/chat?s=${encodeURIComponent(S.simbolo)}`, { method: "DELETE" });
     pintarChat([]);

@@ -284,7 +284,7 @@ class Manejador(BaseHTTPRequestHandler):
         elif url.path == "/api/resumen":
             self._json(analista.generar_resumen(str(cuerpo.get("simbolo", "")), bool(cuerpo.get("forzar"))))
         elif url.path == "/api/chat":
-            self._json({"texto": analista.responder(str(cuerpo.get("simbolo", "")), str(cuerpo.get("texto", "")))})
+            self._json(analista.responder(str(cuerpo.get("simbolo", "")), str(cuerpo.get("texto", ""))))
         elif url.path == "/api/dibujos":
             if not q.get("s") or not isinstance(cuerpo, list):
                 raise ErrorApi(400, "Dibujos no válidos")

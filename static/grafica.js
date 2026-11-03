@@ -495,7 +495,12 @@ class CapaDibujo {
     const fmt = (v) => v.toLocaleString("es-ES", { minimumFractionDigits: decimales(v), maximumFractionDigits: decimales(v) });
 
     switch (d.tipo) {
-      case "tendencia": if (b) seg(a, b); break;
+      case "tendencia":
+        if (b) {
+          seg(a, b);
+          if (d.texto) sal.push(this.texto(b.x + 6, b.y - 6, d.texto, { color }));
+        }
+        break;
       case "rayo": if (b) seg(a, this.extender(a, b)); break;
       case "extendida": if (b) seg(this.extender(b, a), this.extender(a, b)); break;
       case "flecha":
@@ -507,11 +512,15 @@ class CapaDibujo {
         break;
       case "horizontal":
         seg({ x: 0, y: a.y }, { x: this.W, y: a.y });
-        sal.push(this.texto(this.W - 6, a.y - 6, fmt(d.puntos[0].p), { alinear: "right", color }));
+        // Los niveles del analista llevan nombre ("Stop del corto"); los del usuario, solo el precio.
+        sal.push(this.texto(this.W - 6, a.y - 6, d.texto ? `${d.texto}  ${fmt(d.puntos[0].p)}` : fmt(d.puntos[0].p), { alinear: "right", color }));
         break;
       case "vertical": seg({ x: a.x, y: 0 }, { x: a.x, y: this.H }); break;
       case "rect":
-        if (b) sal.push({ k: "rect", x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y), color, relleno: color + "22" });
+        if (b) {
+          sal.push({ k: "rect", x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y), color, relleno: color + "22" });
+          if (d.texto) sal.push(this.texto(Math.min(a.x, b.x) + 6, Math.min(a.y, b.y) + 14, d.texto, { color }));
+        }
         break;
       case "elipse":
         if (b) sal.push({ k: "elipse", cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, rx: Math.abs(b.x - a.x) / 2, ry: Math.abs(b.y - a.y) / 2, color, relleno: color + "22" });
