@@ -21,7 +21,7 @@ import noticias
 
 HORAS_RESUMEN = 12
 MENSAJES_MEMORIA = 12
-MAX_PREGUNTA = 2000
+MAX_PREGUNTA = 20000  # cabe un estado financiero pegado
 MAX_TITULARES = 20   # titulares del activo en el contexto
 EXTRACTOS = 4        # de los más recientes también se lee el artículo
 MAX_EXTRACTO = 1200
@@ -56,6 +56,12 @@ REGLAS = """## Reglas
   mercado aunque no nombre el activo, y solo cuenta si explicas el mecanismo que lo conecta. Cuando te
   apoyes en una noticia, di la fuente y la fecha. Un titular sin extracto dice poco: no le saques más.
 - El precio objetivo de los analistas es una opinión que suele ir por detrás del precio, no una promesa.
+- <fundamentales> son las cuentas de la empresa según Yahoo: úsalas para ratios como EV/ventas o PER y di de
+  qué fecha son. Yahoo a veces mezcla periodos o falla en empresas pequeñas o recién reestructuradas: si dos
+  cifras no cuadran (un margen imposible, un EV que no encaja con capitalización, caja y deuda), dilo en vez
+  de apoyarte en ellas. Si calculas un ratio tú, enseña la cuenta.
+- Si el inversor pega cifras o informes en su mensaje, úsalos y di que vienen de él. Si contradicen a Yahoo,
+  señala la diferencia.
 - No eres un asesor financiero con licencia y no conoces la situación del usuario. No digas qué debe
   comprar, vender o cuánto. Si te lo pide, dilo en una frase y ofrece en su lugar los argumentos a favor y
   en contra, los escenarios y qué dato confirmaría o desmentiría cada uno.
@@ -79,7 +85,8 @@ ha ido y qué cabe esperar, en un texto que se lee en medio minuto.
 {REGLAS}"""
 
 SISTEMA_CHAT = f"""Eres el analista de Radar y conversas con un inversor particular sobre el activo que tiene
-abierto y su cartera. Tienes delante sus datos, sus velas recientes, sus noticias, los activos ligados a él,
+abierto y su cartera. Tienes delante sus datos, sus cuentas si es una empresa, sus velas recientes, sus
+noticias, los activos ligados a él,
 el resumen que le has dado y, si la ha conectado, lo que tiene en Kraken.
 
 Contesta a lo que pregunta, sin repetir el resumen. Sé breve: lo normal son dos a cinco frases, y más solo
@@ -194,6 +201,25 @@ def _bloque_ficha(f):
     if not c:
         lineas.append("Sin datos de consenso de analistas ni calendario de resultados.")
     return "\n".join(lineas)
+
+
+def _bloque_fundamentales(f):
+    fu = None if f["cripto"] else mercado.fundamentales(f["simbolo"])
+    if not fu:
+        return ""
+    lineas = [f"Según Yahoo Finance, en {fu['moneda'] or f['moneda']}. Último trimestre publicado: "
+              f"{fu['ultimo_trimestre'] or 's/d'}; cierre del último ejercicio: {fu['fin_ejercicio'] or 's/d'}.",
+              "Valoración: " + "; ".join(f"{k} {v}" for k, v in fu["valoracion"]),
+              "Últimos 12 meses: " + "; ".join(f"{k} {v}" for k, v in fu["negocio"])]
+    for e in fu["estimaciones"]:
+        lineas.append(f"Estimación de analistas, {e['periodo']}: ingresos {e['ingresos']}"
+                      + (f" ({e['crecimiento']} interanual)" if e["crecimiento"] else "")
+                      + (f", BPA {e['bpa']}" if e["bpa"] else "")
+                      + (f", {e['analistas']} analistas" if e["analistas"] else "")
+                      + (f"; EV/ventas sobre esa estimación {e['ev_ventas']}" if e.get("ev_ventas") else "") + ".")
+    for periodo, nombre, puntos in fu["historico"]:
+        lineas.append(f"{nombre} ({periodo}): " + ", ".join(f"{fecha} {valor}" for fecha, valor in puntos))
+    return "<fundamentales>\n" + html.escape("\n".join(lineas), quote=False) + "\n</fundamentales>\n"
 
 
 def _posicion(f):
@@ -376,7 +402,8 @@ def _contexto(simbolo, f, velas=False, menciones=""):
     que_es = mercado.perfil(simbolo)
     return (f"<fecha>{datetime.now():%Y-%m-%d %H:%M}</fecha>\n<activo>\n{_bloque_ficha(f)}\n"
             + (f"Qué es, según Yahoo: {html.escape(que_es, quote=False)}\n" if que_es else "") + "</activo>\n"
-            f"<posicion>{_posicion(f)}</posicion>\n"
+            + _bloque_fundamentales(f)
+            + f"<posicion>{_posicion(f)}</posicion>\n"
             + (f"<kraken>\n{html.escape(en_kraken, quote=False)}\n</kraken>\n" if en_kraken else "")
             + _relacionados(f, menciones)
             + (f"{_velas(simbolo)}\n" if velas else "")

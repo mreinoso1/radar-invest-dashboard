@@ -260,6 +260,93 @@ def perfil(simbolo):
     return _cacheado(("perfil", simbolo), 86400, cargar)
 
 
+VALORACION = [  # (módulo, campo, etiqueta)
+    ("summaryDetail", "marketCap", "Capitalización"), ("defaultKeyStatistics", "enterpriseValue", "Valor empresa (EV)"),
+    ("defaultKeyStatistics", "enterpriseToRevenue", "EV/ventas"), ("defaultKeyStatistics", "enterpriseToEbitda", "EV/EBITDA"),
+    ("summaryDetail", "priceToSalesTrailing12Months", "Precio/ventas"), ("summaryDetail", "trailingPE", "PER"),
+    ("summaryDetail", "forwardPE", "PER estimado"), ("defaultKeyStatistics", "pegRatio", "PEG"),
+    ("defaultKeyStatistics", "priceToBook", "Precio/valor contable"), ("summaryDetail", "dividendYield", "Rentabilidad por dividendo"),
+    ("defaultKeyStatistics", "beta", "Beta"),
+]
+NEGOCIO = [  # últimos 12 meses, salvo lo indicado
+    ("financialData", "totalRevenue", "Ingresos"), ("financialData", "revenueGrowth", "Crecimiento de ingresos (trimestre, interanual)"),
+    ("financialData", "grossMargins", "Margen bruto"), ("financialData", "ebitda", "EBITDA"),
+    ("financialData", "operatingMargins", "Margen operativo"), ("defaultKeyStatistics", "netIncomeToCommon", "Beneficio neto"),
+    ("financialData", "profitMargins", "Margen neto"), ("financialData", "operatingCashflow", "Flujo de caja operativo"),
+    ("financialData", "freeCashflow", "Flujo de caja libre"), ("financialData", "returnOnEquity", "ROE"),
+    ("financialData", "totalCash", "Caja"), ("financialData", "totalDebt", "Deuda"),
+    ("financialData", "debtToEquity", "Deuda/patrimonio"), ("financialData", "currentRatio", "Liquidez corriente"),
+    ("defaultKeyStatistics", "sharesOutstanding", "Acciones en circulación"),
+    ("defaultKeyStatistics", "shortPercentOfFloat", "Posiciones cortas sobre el capital flotante"),
+]
+SERIES = [("TotalRevenue", "Ingresos"), ("GrossProfit", "Beneficio bruto"), ("OperatingIncome", "Resultado operativo"),
+          ("EBITDA", "EBITDA"), ("NetIncome", "Beneficio neto"), ("FreeCashFlow", "Flujo de caja libre"),
+          ("CashAndCashEquivalents", "Caja"), ("TotalDebt", "Deuda"), ("DilutedAverageShares", "Acciones diluidas")]
+
+
+def fundamentales(simbolo):
+    """Datos financieros de una empresa según Yahoo: valoración, cuentas de los últimos 12 meses, estimaciones de
+    los analistas e histórico anual y trimestral. None si no hay (cripto, índices) o si Yahoo falla."""
+
+    def cargar():
+        global _sesion
+        try:
+            abridor, crumb = _sesion_yahoo()
+            s = quote(simbolo, safe="")
+            url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{s}?" + urlencode(
+                {"modules": "defaultKeyStatistics,financialData,summaryDetail,earningsTrend", "crumb": crumb}))
+            d = json.loads(abridor.open(url, timeout=10).read())["quoteSummary"]["result"][0]
+            ahora = int(time.time())
+            tipos = [f"{p}{c}" for p in ("annual", "quarterly") for c, _ in SERIES]
+            url = (f"https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{s}?" + urlencode(
+                {"type": ",".join(tipos), "period1": ahora - 6 * 365 * 86400, "period2": ahora, "crumb": crumb}))
+            series = json.loads(abridor.open(url, timeout=10).read())["timeseries"]["result"] or []
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                _sesion = None
+            return None
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError, TypeError):
+            return None
+        texto = lambda v: v.get("fmt") or v.get("longFmt") if isinstance(v, dict) else None
+        tomar = lambda campos: [(etiqueta, texto((d.get(m) or {}).get(c))) for m, c, etiqueta in campos
+                                if texto((d.get(m) or {}).get(c))]
+        crudo = lambda m, c: ((d.get(m) or {}).get(c) or {}).get("raw") if isinstance((d.get(m) or {}).get(c), dict) else None
+        if not crudo("financialData", "totalRevenue") and not crudo("defaultKeyStatistics", "netIncomeToCommon"):
+            return None  # cripto, índices y fondos no tienen cuentas
+        ev = crudo("defaultKeyStatistics", "enterpriseValue")
+        estimaciones = []
+        for t in (d.get("earningsTrend") or {}).get("trend", []):
+            ingresos = (t.get("revenueEstimate") or {}).get("avg") or {}
+            if not ingresos.get("raw"):
+                continue
+            nombre = {"0q": "Trimestre actual", "+1q": "Próximo trimestre", "0y": "Año fiscal actual",
+                      "+1y": "Próximo año fiscal"}.get(t.get("period"), t.get("period"))
+            fila = {"periodo": f"{nombre} (hasta {t.get('endDate')})", "ingresos": ingresos.get("fmt"),
+                    "crecimiento": texto((t.get("revenueEstimate") or {}).get("growth")),
+                    "bpa": texto((t.get("earningsEstimate") or {}).get("avg")),
+                    "analistas": ((t.get("revenueEstimate") or {}).get("numberOfAnalysts") or {}).get("raw")}
+            if ev and t.get("period") in ("0y", "+1y"):  # EV/ventas sobre lo que se espera facturar
+                fila["ev_ventas"] = f"{ev / ingresos['raw']:.2f}"
+            estimaciones.append(fila)
+        historico = {}
+        nombres = dict(SERIES)
+        for serie in series:
+            tipo = (serie.get("meta") or {}).get("type", [""])[0]
+            puntos = [(x["asOfDate"], x["reportedValue"]["fmt"]) for x in serie.get(tipo) or [] if x and x.get("reportedValue")]
+            if puntos:
+                periodo = "anual" if tipo.startswith("annual") else "trimestral"
+                historico[(periodo, nombres[tipo.removeprefix("annual").removeprefix("quarterly")])] = puntos[-5:]
+        k = d.get("defaultKeyStatistics") or {}
+        return {
+            "moneda": (d.get("financialData") or {}).get("financialCurrency"),
+            "ultimo_trimestre": texto(k.get("mostRecentQuarter")), "fin_ejercicio": texto(k.get("lastFiscalYearEnd")),
+            "valoracion": tomar(VALORACION), "negocio": tomar(NEGOCIO), "estimaciones": estimaciones,
+            "historico": [(p, n, historico[(p, n)]) for p in ("anual", "trimestral") for _, n in SERIES if (p, n) in historico],
+        }
+
+    return _cacheado(("fundamentales", simbolo), 6 * 3600, cargar)
+
+
 def cierres(simbolo):
     """Cierres diarios de los últimos seis meses por día, para comparar activos entre sí."""
     return _cacheado(("cierres", simbolo), 3600,

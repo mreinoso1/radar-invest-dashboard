@@ -21,7 +21,10 @@ The interface and the analyst's answers are in Spanish.
 - **News agent**: for every relevant item it explains how it affects each holding (oil prices move an oil
   company even when the headline doesn't name it) and estimates the probability of a rise.
 - **Per-asset analyst**: a summary when you open an asset, and a chat. It gets prices, candles, news, related
-  assets with their correlation, and your positions. It can propose levels and draw them on the chart.
+  assets with their correlation, and your positions. For companies it also gets their financials: valuation
+  ratios (EV/sales, EV/EBITDA, P/E…), margins, cash and debt, analyst revenue estimates, and four years plus
+  five quarters of history. It can propose levels and draw them on the chart, and you can paste longer
+  documents into the chat.
 - **Hit-rate scoreboard**: judges each signal once its horizon ends and reports accuracy with a Wilson
   interval, the Brier score against always saying 50 %, and calibration by bands.
 
