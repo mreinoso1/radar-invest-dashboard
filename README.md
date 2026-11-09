@@ -53,6 +53,13 @@ The interface and the analyst's answers are in Spanish.
   costs, and a day-block bootstrap interval of the mean excess per trade above zero, Bonferroni-corrected),
   and paper trading of the same rules confirms it with at least 30 real trades. Any change to the strategy
   creates a new fingerprint and restarts the count.
+- **A preregistered strategy (trend_v1)**: trend following on eight liquid cryptocurrencies (long while the close
+  is above its 100-day average, volatility-targeted sizing, no new buying when BTC is in a downtrend or in
+  extreme volatility). Every parameter and the success criterion were frozen in
+  [`estrategias/trend_v1.json`](estrategias/trend_v1.json) and tagged `prereg-trend-v1` before any backtest;
+  the backtest refuses to run if that file no longer matches the tag. Four coins drawn with a fixed seed are held
+  out and tested once, at the end. A counter records every strategy tried so far. See
+  [Preregistered strategies](#preregistered-strategies).
 - **Hit-rate scoreboard**: judges each signal (portfolio and ideas alike) once its horizon ends and reports
   accuracy with a Wilson interval, the Brier score against always saying 50 %, calibration by bands, the
   result against SPY or BTC over the same window, and the result net of a round-trip fee.
@@ -105,6 +112,35 @@ Design decisions:
   They can be changed in Settings.
 - **No heavy dependencies.** A standard-library server (`ThreadingHTTPServer`), SQLite and a front end with
   no build step.
+
+## Preregistered strategies
+
+Testing many ideas on the same past data until one looks good is the easiest way to fool yourself. Radar's
+answer is to write the strategy down before looking:
+
+1. **Preregister.** The hypothesis, universe, every parameter, costs, metrics and the pass/fail criterion go into
+   a JSON file, committed and tagged before any backtest exists (`prereg-trend-v1`, pushed to GitHub so its
+   date is public).
+2. **Refuse to drift.** `python -m estrategias.trend backtest` hashes the JSON and compares it byte for byte
+   with the tagged version. Any change means a new strategy (`trend_v2`) with its own preregistration, and one
+   more entry in the counter of attempts.
+3. **Hold out.** Four of the twelve coins are never looked at until the end, then tested once
+   (`--reserva`).
+4. **Report everything.** Equity curve against BTC and an equal-weight basket, Sharpe with a stationary block
+   bootstrap interval, drawdown, results by year and by coin, cost sensitivity, robustness to 50- and 150-day
+   averages (informative only), and every weekly decision with its regime, signal, weight and cost.
+
+trend_v1 passes only if, net of 0.36 % per side, its Sharpe is at least 0.8 with the lower bound of its 95 %
+bootstrap interval above zero, its maximum drawdown is at most 35 %, it made money in at least three of
+2022-2025, and the held-out coins meet the same three conditions. Two caveats are printed with every report:
+the universe is coins that survived to today, and they all move closely with BTC. Even a pass would only lead to
+paper trading, never straight to real money.
+
+**Result (run on 2026-11-09): not demonstrated.** On the eight main coins, Sharpe 0.96 (95 % interval 0.14 to
+1.75), but a maximum drawdown of 64 % and gains in only two of 2022-2025: re-entries during bear-market rallies
+(April and November 2022) were hit by the LUNA and FTX collapses. On the held-out coins, Sharpe 0.60 (−0.10 to
+1.33) and a 62 % drawdown. trend_v1 stays exactly as preregistered; any variant would be trend_v2, with its own
+preregistration and one more attempt on the counter.
 
 ## Getting started
 

@@ -35,6 +35,7 @@ import noticias
 import oportunidades
 import paper
 import simulador
+from estrategias import trend
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("RADAR_PUERTO", 8770))
 STATIC = Path(__file__).resolve().parent / "static"
@@ -387,6 +388,8 @@ class Manejador(BaseHTTPRequestHandler):
             self._json({"estado": backtest.estado(), "resultado": datos.simulacion("backtest")})
         elif ruta == "/api/criterio":
             self._json(paper.estado_fase5())
+        elif ruta == "/api/estrategia":
+            self._json(trend.vista())
         elif ruta == "/api/alertas/no_leidas":
             self._json({"n": datos.no_leidas()})
         elif ruta == "/api/calendario":  # aparte: la primera vez consulta varias webs y tarda
@@ -429,6 +432,9 @@ class Manejador(BaseHTTPRequestHandler):
             self._json({"error": error} if error else {"ok": True})
         elif url.path == "/api/backtest":
             error = backtest.lanzar(bool(cuerpo.get("insiders")))
+            self._json({"error": error} if error else {"ok": True})
+        elif url.path == "/api/estrategia/backtest":
+            error = trend.lanzar(bool(cuerpo.get("reserva")))
             self._json({"error": error} if error else {"ok": True})
         elif url.path == "/api/alertas/reglas":
             self._json(crear_regla(cuerpo))
