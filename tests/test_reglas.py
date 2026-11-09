@@ -32,6 +32,7 @@ class EvaluarTest(unittest.TestCase):
         compra = lambda n, compras, ventas: {"insiders": {"compradores": n, "valor_compras": compras, "valor_ventas": ventas}}
         self.assertEqual(self.nombres(compra(2, 2e6, 1e6)), [("insiders", "sube")])
         self.assertEqual(self.nombres(compra(1, 2e6, 0)), [])
+        self.assertEqual(self.nombres(compra(31, 530_000 / 2.2, 0)), [])  # muchas compras rutinarias y pequeñas
         self.assertEqual(self.nombres(compra(3, 1e6, 5e6)), [])  # venden más de lo que compran
 
     def test_funding(self):

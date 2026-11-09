@@ -231,7 +231,8 @@ def texto_activo(c):
                       f"frente al mes anterior; {_es(k['dias_cubrir'])} días para cubrirlas (dato del {k['fecha'] or 's/d'}).")
     if c.get("cripto"):
         k = c["cripto"]
-        lineas.append(f"Perpetuos: funding {_es(k['funding_hl'], signo=True)} % anual en Hyperliquid y "
+        lineas.append(f"Perpetuos: funding {_es(k['funding_hl'], signo=True)} % anual en Hyperliquid (incluye un interés "
+                      f"fijo de unos +11 % anuales: ese valor es neutro) y "
                       f"{_es(k['funding_kraken'], signo=True)} % en Kraken; prima {_es(k['prima'], 2, True)} %; interés "
                       f"abierto {_millones(k['oi_usd'])} ({_es(k['oi_24h'], signo=True)} % en 24 h, "
                       f"{_es(k['oi_7d'], signo=True)} % en 7 días).")

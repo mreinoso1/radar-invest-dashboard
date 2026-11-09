@@ -447,6 +447,11 @@ class Servidor(ThreadingHTTPServer):
     allow_reuse_address = False
     daemon_threads = True
 
+    def handle_error(self, request, client_address):
+        # El navegador cierra conexiones abiertas al cambiar de página: no es un fallo y no debe ensuciar la ventana.
+        if not isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            super().handle_error(request, client_address)
+
 
 def _cerrar_anterior():
     """Pide al Radar que siga abierto en el puerto que se cierre. Los anteriores a esta versión no saben."""

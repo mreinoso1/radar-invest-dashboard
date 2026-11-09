@@ -18,6 +18,9 @@ import mercado
 
 REVISION_MIN = 3.0        # % de subida del BPA estimado en 30 días
 INSIDERS_MIN = 2          # directivos distintos que compran en el mercado en 90 días
+# Añadido el mismo día, antes de cualquier resultado: los datos reales mostraron compras rutinarias de planes
+# periódicos (31 directivos de TSMC por 0,53 M$ en total), que no son la apuesta discrecional que busca la regla.
+INSIDERS_VALOR_MIN = 250_000  # $ comprados en total
 FUNDING_ALTO = 40.0       # % anual: demasiada gente apalancada al alza
 FUNDING_BAJO = -20.0      # % anual: demasiada gente apalancada a la baja
 VOLUMEN_MIN = 3.0         # veces el volumen medio de 20 sesiones
@@ -40,7 +43,8 @@ def evaluar(c):
         salida.append(("revisiones", "sube", f"BPA estimado {_es(r['cambio_30d'])} % en 30 días, con "
                                              f"{r['suben_30d']} revisiones al alza y {r['bajan_30d']} a la baja"))
     i = c.get("insiders")
-    if i and i["compradores"] >= INSIDERS_MIN and i["valor_compras"] > i["valor_ventas"]:
+    if (i and i["compradores"] >= INSIDERS_MIN and i["valor_compras"] >= INSIDERS_VALOR_MIN
+            and i["valor_compras"] > i["valor_ventas"]):
         salida.append(("insiders", "sube", f"{i['compradores']} directivos compran en el mercado en 90 días "
                                            f"({_es(i['valor_compras'] / 1e6, '.2f')} M$ frente a "
                                            f"{_es(i['valor_ventas'] / 1e6, '.2f')} M$ en ventas)"))

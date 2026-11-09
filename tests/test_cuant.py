@@ -117,6 +117,18 @@ class EdgarTest(unittest.TestCase):
         self.assertEqual((r["compras"], r["ventas"], r["otros"], r["compradores"]), (1, 1, 2, 1))
         self.assertEqual(r["valor_compras"], 50_500)  # el premio y la donación no cuentan como dinero
 
+    def test_form4_de_otra_empresa_no_cuenta(self):
+        # Una empresa que es accionista de otra presenta Form 4 de esa otra: aparecen en su lista pero no son suyos.
+        ajeno = self.xml.replace(b"<issuerCik>0000000001</issuerCik>", b"<issuerCik>0000000999</issuerCik>")
+        self.assertEqual(edgar.leer_form4(ajeno)[0]["emisor"], 999)
+        datos.guardar_form4("propio", "EJEM", "2026-11-01", edgar.leer_form4(self.xml))
+        datos.guardar_form4("ajeno", "EJEM", "2026-11-01", edgar.leer_form4(ajeno))
+        with mock.patch.object(edgar, "_cik", return_value=1), \
+                mock.patch.object(mercado, "_cacheado", return_value={"filings": {"recent": {
+                    "form": [], "filingDate": [], "accessionNumber": [], "primaryDocument": []}}}):
+            r = edgar.resumen("EJEM", dias=36500)
+        self.assertEqual(r["compras"], 1)  # la del Form 4 propio; el ajeno no suma
+
     def test_sin_contacto_no_pide_nada(self):
         with mock.patch.object(edgar.urllib.request, "urlopen") as abrir:
             with self.assertRaises(edgar.ErrorEdgar):

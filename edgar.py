@@ -69,6 +69,7 @@ def leer_form4(xml):
     """Las transacciones de acciones (no de opciones) de un Form 4."""
     raiz = ET.fromstring(xml)
     texto = lambda nodo, ruta: (nodo.findtext(ruta) or "").strip()
+    emisor = int(texto(raiz, "issuer/issuerCik") or 0)
     nombre = texto(raiz, "reportingOwner/reportingOwnerId/rptOwnerName")
     rel = raiz.find("reportingOwner/reportingOwnerRelationship")
     cargo = (texto(rel, "officerTitle") or ("Consejero" if texto(rel, "isDirector") in ("1", "true") else "")) if rel is not None else ""
@@ -79,7 +80,8 @@ def leer_form4(xml):
             precio = float(texto(t, "transactionAmounts/transactionPricePerShare/value") or 0)
         except ValueError:
             continue
-        salida.append({"nombre": nombre, "cargo": cargo, "codigo": texto(t, "transactionCoding/transactionCode"),
+        salida.append({"emisor": emisor, "nombre": nombre, "cargo": cargo,
+                       "codigo": texto(t, "transactionCoding/transactionCode"),
                        "fecha": texto(t, "transactionDate/value"), "acciones": acciones, "precio": precio})
     return salida
 
@@ -113,4 +115,5 @@ def resumen(simbolo, dias=90):
             transacciones = []
         datos.guardar_form4(acceso, simbolo, fecha, transacciones)
         guardados[acceso] = {"transacciones": transacciones}
-    return resumir([t for f in guardados.values() for t in f["transacciones"]])
+    # La lista de un CIK incluye los Form 4 que esa empresa presenta como accionista de otras: no son suyos.
+    return resumir([t for f in guardados.values() for t in f["transacciones"] if t.get("emisor") == cik])
