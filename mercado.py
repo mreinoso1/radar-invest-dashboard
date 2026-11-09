@@ -170,6 +170,7 @@ def cotizacion(simbolo):
             "nombre": meta.get("longName") or meta.get("shortName") or simbolo,
             "moneda": meta.get("currency") or "",
             "precio": precio,
+            "cierre_previo": previo,
             "var_dia": (precio / previo - 1) * 100 if precio and previo else None,
             "var_5d": (precio / inicio - 1) * 100 if precio and inicio else None,
         }
