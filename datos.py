@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS senales_reglas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     regla TEXT NOT NULL,
     simbolo TEXT NOT NULL,
+    direccion TEXT NOT NULL,       -- la apuesta de la regla, aparte de su probabilidad medida
     prob_subida INTEGER NOT NULL,
     horizonte TEXT NOT NULL,
     detalle TEXT NOT NULL,
@@ -587,8 +588,9 @@ def cuant_de(simbolo, dia):
 def guardar_senal_regla(s):
     with _lock, _con:
         return _con.execute(
-            """INSERT INTO senales_reglas (regla, simbolo, prob_subida, horizonte, detalle, precio, creado)
-               VALUES (:regla, :simbolo, :prob_subida, :horizonte, :detalle, :precio, :creado)""", s).lastrowid
+            """INSERT INTO senales_reglas (regla, simbolo, direccion, prob_subida, horizonte, detalle, precio, creado)
+               VALUES (:regla, :simbolo, :direccion, :prob_subida, :horizonte, :detalle, :precio, :creado)""",
+            s).lastrowid
 
 
 def senales_reglas(desde=0):
