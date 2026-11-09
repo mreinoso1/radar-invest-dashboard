@@ -29,6 +29,7 @@
     <a href="#social" data-vista="social"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H10l-4.5 3.5v-3.5H4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>Social</a>
     <a href="#aciertos" data-vista="aciertos"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="m12 12 7-7M16 5h3v3"/></svg>Aciertos</a>
     <a href="#simulacion" data-vista="simulacion"><svg viewBox="0 0 24 24"><path d="M4 19.5h16M5 16l4.5-5 3.5 3 6-7.5"/><path d="M15 6.5h4v4"/></svg>Simulación</a>
+    <a href="#estrategia" data-vista="estrategia"><svg viewBox="0 0 24 24"><path d="M4 18.5 9.5 12l3.5 3.5L20 7"/><path d="M4 5.5v13h16"/></svg>Estrategia</a>
     <a href="#alertas" data-vista="alertas"><svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/></svg>Alertas<span class="insignia-rail" id="insignia-alertas" hidden></span></a>
     <a href="#ajustes" data-vista="ajustes" class="abajo"><svg viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 12h3m4 0h9M4 17h11m4 0h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>Ajustes</a>
   </nav>
@@ -301,6 +302,50 @@
       <h2 class="ac-titulo">Operaciones</h2>
       <div class="tabla-envoltura"><table class="tabla" id="sim-operaciones"></table></div>
       <p class="legal">Dinero ficticio. El backtest usa tu cartera y watchlist de hoy, empresas que sabemos que sobrevivieron (sesgo de supervivencia): un buen resultado es una pista, no una prueba. Ninguna simulación garantiza resultados futuros y nada de esto es asesoramiento financiero.</p>
+    </section>
+
+    <!-- ESTRATEGIA -->
+    <section class="vista vista-texto" id="v-estrategia" hidden>
+      <div class="cabecera-vista">
+        <h1>Estrategia trend_v1</h1>
+        <div class="acciones">
+          <span class="estado" id="estado-estrategia" role="status"></span>
+          <button class="boton primario" id="b-trend">Ejecutar backtest</button>
+          <button class="boton" id="b-trend-reserva" hidden>Ejecutar las reservadas (una sola vez)</button>
+        </div>
+      </div>
+      <p class="nota-vista">Sigue la tendencia en 8 cripto: larga en cada moneda cuyo cierre está por encima de su media de 100 días, con tamaño por volatilidad, y sin comprar más cuando BTC está en régimen bajista o de volatilidad extrema. Todo lo que decide quedó congelado en un preregistro antes del primer backtest. Python calcula todo: no hay llamadas al modelo.</p>
+      <p class="nota" id="tr-prereg"></p>
+      <div class="criterio" id="tr-veredicto"></div>
+      <div class="sim-grafica-caja">
+        <div class="sim-leyenda" id="tr-leyenda"></div>
+        <div class="sim-grafica" id="tr-grafica"></div>
+      </div>
+      <div class="metricas" id="tr-metricas"></div>
+      <div class="ac-rejilla">
+        <div class="ac-bloque">
+          <h2>Por año</h2>
+          <div class="tabla-envoltura"><table class="tabla" id="tr-anios"></table></div>
+          <h2>Costes, robustez y referencias</h2>
+          <div class="tabla-envoltura"><table class="tabla" id="tr-variantes"></table></div>
+          <p class="nota">Solo informan: el criterio se evalúa con la estrategia tal como se preregistró (media de 100 días, 0,36 % por lado).</p>
+        </div>
+        <div class="ac-bloque">
+          <h2>Por moneda</h2>
+          <div class="tabla-envoltura"><table class="tabla" id="tr-monedas"></table></div>
+          <h2>Régimen de BTC (semanas)</h2>
+          <ul class="datos-activo" id="tr-regimenes"></ul>
+        </div>
+      </div>
+      <h2 class="ac-titulo">Posiciones y eventos</h2>
+      <p class="nota">Noticias de importancia 4 o 5 y alertas de los últimos 30 días sobre cada moneda con posición. No cambian la señal: sirven para que decidas si pausarías el bot.</p>
+      <div id="tr-eventos"></div>
+      <h2 class="ac-titulo">Últimas decisiones</h2>
+      <div class="tabla-envoltura"><table class="tabla" id="tr-decisiones"></table></div>
+      <div id="tr-avisos"></div>
+      <h2 class="ac-titulo">Contador de pruebas</h2>
+      <ul class="datos-activo" id="tr-pruebas"></ul>
+      <p class="legal">Dinero ficticio y datos pasados. Un backtest que pasa es una pista, no una prueba: el siguiente paso sería el paper trading, nunca el dinero real directamente. Nada de esto es asesoramiento financiero.</p>
     </section>
 
     <!-- ALERTAS -->

@@ -95,7 +95,7 @@ function estado(tipo, texto, error = false) {
 /* ---------- Navegación ---------- */
 
 function irA(vista) {
-  if (!["mercado", "cartera", "noticias", "ideas", "social", "aciertos", "simulacion", "alertas", "ajustes"].includes(vista)) vista = "mercado";
+  if (!["mercado", "cartera", "noticias", "ideas", "social", "aciertos", "simulacion", "estrategia", "alertas", "ajustes"].includes(vista)) vista = "mercado";
   S.vista = vista;
   document.querySelectorAll(".vista-texto").forEach((v) => { v.hidden = v.id !== `v-${vista}`; });
   $("v-mercado").classList.toggle("en-reposo", vista !== "mercado");
@@ -109,6 +109,7 @@ function irA(vista) {
   if (vista === "aciertos") cargarAciertos();
   if (vista === "alertas") { cargarAlertas(); cargarCalendario(); }
   if (vista === "simulacion") cargarSimulacion();
+  if (vista === "estrategia") cargarEstrategia();
   if (vista === "ajustes") pintarAjustes();
 }
 window.addEventListener("hashchange", () => irA(location.hash.slice(1)));
@@ -1432,6 +1433,133 @@ $("v-simulacion").addEventListener("click", (e) => {
   const b = e.target.closest("[data-abrir]");
   if (b) abrirActivo(b.dataset.abrir);
 });
+
+/* ---------- Estrategia (trend_v1) ---------- */
+
+S.tr = { grafica: null, vigilando: false };
+const VEREDICTOS = { pasa: "pasa", "no pasa": "no pasa", "no demostrado": "no demostrado", pendiente: "pendiente", "sin ejecutar": "sin ejecutar" };
+const pp = (v, dec = 1) => (v === null || v === undefined ? "—" : `${numero(v, dec)} %`);
+
+async function cargarEstrategia() {
+  try {
+    const r = await api("/api/estrategia");
+    pintarEstrategia(r);
+    if (r.estado.activo) vigilarTrend();
+    else estado("estrategia", r.estado.error || "", Boolean(r.estado.error));
+  } catch (e) {
+    estado("estrategia", e.message, true);
+  }
+}
+
+function valorTrend(p, i) {
+  if (p.pendiente) return "falta ejecutarlas";
+  if (i === 0) return `Sharpe ${numero(p.valor.sharpe, 2)} · intervalo ${numero(p.valor.intervalo?.[0], 2)} a ${numero(p.valor.intervalo?.[1], 2)}`;
+  if (i === 1) return pp(p.valor);
+  if (i === 2) return `${p.valor} de 4`;
+  return `${p.valor} de 3 puntos`;
+}
+
+function pintarEstrategia(r) {
+  const pre = r.preregistro;
+  $("tr-prereg").innerHTML = pre.ok
+    ? `<span class="sube">✓</span> Preregistro verificado: coincide byte a byte con el tag <b>${esc(pre.tag)}</b> · sha256 ${esc(pre.hash.slice(0, 12))}…`
+    : `<span class="baja">✗ ${esc(pre.error)}</span>`;
+  $("b-trend").disabled = !pre.ok || r.estado.activo;
+  $("b-trend-reserva").hidden = !r.principal || Boolean(r.reserva);
+  const v = r.veredicto;
+  $("tr-veredicto").innerHTML = `<h2>Veredicto: ${esc(VEREDICTOS[v.veredicto] || v.veredicto)}</h2>
+    <ul class="tr-puntos">${v.puntos.map((p, i) => `<li class="${p.pendiente ? "neutro" : p.ok ? "sube" : "baja"}">${p.pendiente ? "…" : p.ok ? "✓" : "✗"} ${esc(p.nombre)} <span>${esc(valorTrend(p, i))}</span></li>`).join("")}</ul>
+    <p class="nota">${esc(v.texto)}</p>`;
+  $("tr-pruebas").innerHTML = r.pruebas.map((p) => `<li><span>${p.id}. ${esc(p.descripcion)}</span><span>${esc(p.veredicto)}</span></li>`).join("")
+    + `<li><span><b>Llevas ${r.pruebas.length} intentos.</b> Cuantos más, más fácil que uno salga bien por suerte.</span><span></span></li>`;
+
+  const m = r.principal, res = r.reserva;
+  if (S.tr.grafica) { S.tr.grafica.remove(); S.tr.grafica = null; }
+  if (!m) {
+    $("tr-grafica").innerHTML = '<p class="vacio">Aún no se ha ejecutado. Pulsa «Ejecutar backtest»: descarga 9 monedas de Yahoo y tarda alrededor de un minuto.</p>';
+    for (const id of ["tr-leyenda", "tr-metricas", "tr-anios", "tr-variantes", "tr-monedas", "tr-regimenes", "tr-eventos", "tr-decisiones", "tr-avisos"]) $(id).innerHTML = "";
+    return;
+  }
+  $("tr-grafica").innerHTML = "";
+  const g = LightweightCharts.createChart($("tr-grafica"), {
+    autoSize: true, layout: { background: { color: COL.fondo }, textColor: COL.texto, fontFamily: "IBM Plex Mono, Consolas, monospace", fontSize: 11 },
+    grid: { vertLines: { color: COL.rejilla }, horzLines: { color: COL.rejilla } },
+    rightPriceScale: { borderColor: COL.eje, mode: 1 }, timeScale: { borderColor: COL.eje }, handleScroll: false, handleScale: false,
+    localization: { priceFormatter: (x) => numero(x, 2) },
+  });
+  S.tr.grafica = g;
+  const lineas = [["trend_v1", COL.acento, m.curva.map((x) => [x[0], x[1]])], ["BTC", "#c58bf2", m.curva.map((x) => [x[0], x[2]])],
+    ["Universo a pesos iguales", "#6aa8ff", m.curva.map((x) => [x[0], x[3]])]];
+  if (res) lineas.push(["Reservadas", "#e0b341", res.curva]);
+  for (const [, color, curva] of lineas) {
+    const datos = curva.filter((x) => x[1] !== null).map(([d, val]) => ({ time: d * 86400, value: val }));
+    if (datos.length) g.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false }).setData(datos);
+  }
+  g.timeScale().fitContent();
+  const final = (curva) => { const c = curva.filter((x) => x[1] !== null); return c.length ? (c[c.length - 1][1] - 1) * 100 : null; };
+  $("tr-leyenda").innerHTML = lineas.map(([n, color, curva]) => `<span><i style="background:${color}"></i>${esc(n)} <b class="${claseVar(final(curva))}">${pct(final(curva))}</b></span>`).join("")
+    + `<span class="nota">Capital desde 1 · escala logarítmica · ${esc(m.desde)} a ${esc(m.hasta)}</span>`;
+
+  const md = m.medidas, metrica = (t, val, nota, clase = "") => `<div class="metrica"><span>${t}</span><b class="${clase}">${val}</b><small>${nota}</small></div>`;
+  $("tr-metricas").innerHTML = metrica("Sharpe neto", numero(md.sharpe, 2), `intervalo 95 %: ${numero(md.intervalo?.[0], 2)} a ${numero(md.intervalo?.[1], 2)}`)
+    + metrica("Caída máxima", pp(md.caida_maxima), "desde el máximo anterior", "baja")
+    + metrica("Rentabilidad", pct(md.rentabilidad), `${pct(md.cagr)} al año`, claseVar(md.rentabilidad))
+    + metrica("Volatilidad", pp(md.volatilidad), "anual, con los días en liquidez")
+    + metrica("Operaciones", m.operaciones, `rotación ${pp(m.rotacion_anual, 0)} al año`)
+    + metrica("En liquidez", pp(m.liquidez_pct), `invertido de media ${pp(m.invertido_medio)}`)
+    + metrica("Costes", pp(m.costes, 2), "del capital inicial, en total");
+
+  const refs = m.referencias, anios = Object.keys(md.anios);
+  $("tr-anios").innerHTML = `<thead><tr><th>Año</th><th>trend_v1</th><th>BTC</th><th>Pesos iguales</th>${res ? "<th>Reservadas</th>" : ""}</tr></thead><tbody>`
+    + anios.map((a) => `<tr><td>${a}${["2022", "2023", "2024", "2025"].includes(a) ? " ·" : ""}</td>${[md, refs["BTC comprar y mantener"], refs["Universo a pesos iguales"], ...(res ? [res.medidas] : [])]
+      .map((x) => `<td class="${claseVar(x.anios[a])}">${pct(x.anios[a])}</td>`).join("")}</tr>`).join("") + "</tbody>";
+  const filas = [["trend_v1 (preregistrada)", { ...md, operaciones: m.operaciones }], ...Object.entries(m.variantes), ...Object.entries(refs),
+    ...(res ? [["Reservadas (DOT, LINK, LTC, UNI)", { ...res.medidas, operaciones: res.operaciones }]] : [])];
+  $("tr-variantes").innerHTML = `<thead><tr><th></th><th>Sharpe</th><th>Caída máx.</th><th>Al año</th><th>Operaciones</th></tr></thead><tbody>`
+    + filas.map(([n, x]) => `<tr><td>${esc(n)}</td><td>${numero(x.sharpe, 2)}</td><td>${pp(x.caida_maxima)}</td><td class="${claseVar(x.cagr)}">${pct(x.cagr)}</td><td>${x.operaciones ?? "—"}</td></tr>`).join("") + "</tbody>";
+  const monedas = [...Object.entries(m.por_moneda).map(([k, x]) => [k, x, m.correlacion_btc[k]]),
+    ...(res ? Object.entries(res.por_moneda).map(([k, x]) => [`${k} (reservada)`, x, res.correlacion_btc[k]]) : [])];
+  $("tr-monedas").innerHTML = `<thead><tr><th>Moneda</th><th>Días con posición</th><th>Operaciones</th><th>Aportó</th><th>Costes</th><th>Correlación con BTC</th></tr></thead><tbody>`
+    + monedas.map(([k, x, c]) => `<tr><td>${esc(k)}</td><td>${x.dias}</td><td>${x.operaciones}</td><td class="${claseVar(x.resultado)}">${pct(x.resultado)}</td><td>${pp(x.costes, 2)}</td><td>${numero(c, 2)}</td></tr>`).join("") + "</tbody>";
+  $("tr-regimenes").innerHTML = Object.entries(m.regimenes).map(([k, n]) => `<li><span>${esc(k)}</span><span>${n}</span></li>`).join("");
+
+  const ev = Object.entries(r.eventos);
+  $("tr-eventos").innerHTML = ev.length ? ev.map(([k, e]) => `<div class="tr-evento"><b>${esc(k)}</b> <span class="nota">peso ${pp(e.peso * 100)} a ${esc(m.hasta)}</span>
+      <ul>${[...e.noticias.map((n) => `<li><a href="${esc(enlaceSeguro(n.url))}" target="_blank" rel="noopener">${esc(n.titulo)}</a> <span class="nota">importancia ${n.importancia} · ${hace(n.creado)}</span></li>`),
+        ...e.alertas.map((a) => `<li>${esc(a.titulo)} <span class="nota">alerta · ${hace(a.creada)}</span></li>`)].join("") || '<li class="nota">Nada importante en los últimos 30 días.</li>'}</ul></div>`).join("")
+    : `<p class="nota">trend_v1 no tenía ninguna posición a ${esc(m.hasta)}: todo en liquidez.</p>`;
+  $("tr-decisiones").innerHTML = `<thead><tr><th>Ejecución</th><th>Moneda</th><th>Régimen</th><th>Señal</th><th>Peso actual</th><th>Objetivo</th><th>Final</th><th>Coste</th></tr></thead><tbody>`
+    + r.decisiones.map((d) => `<tr><td>${esc(d.dia)}</td><td>${esc(d.moneda)}</td><td>${esc(d.regimen)}</td><td>${esc(d.senal)}</td><td>${pp(d.peso_actual * 100)}</td><td>${pp(d.peso_objetivo * 100)}</td>
+      <td class="${d.operada ? "sube" : ""}">${pp(d.peso_final * 100)}${d.operada ? " ·" : ""}</td><td>${d.operada ? pp(d.coste * 100, 3) : "—"}</td></tr>`).join("") + "</tbody>";
+  $("tr-avisos").innerHTML = m.avisos.map((a) => `<p class="nota error">${esc(a)}</p>`).join("")
+    + `<p class="nota">Código ${esc(m.codigo.slice(0, 12))}… · datos ${esc(m.datos.slice(0, 12))}… · ejecutado ${m.historial.length} ${m.historial.length === 1 ? "vez" : "veces"}, la última ${hace(m.creado)}</p>`;
+}
+
+async function vigilarTrend() {
+  if (S.tr.vigilando) return;
+  S.tr.vigilando = true;
+  $("b-trend").disabled = true;
+  for (;;) {
+    const r = await api("/api/estrategia").catch(() => null);
+    if (!r || !r.estado.activo) {
+      estado("estrategia", r?.estado.error || "Terminado", Boolean(r?.estado.error));
+      break;
+    }
+    estado("estrategia", r.estado.fase);
+    await new Promise((ok) => setTimeout(ok, 2000));
+  }
+  S.tr.vigilando = false;
+  if (S.vista === "estrategia") cargarEstrategia();
+}
+
+for (const [id, reserva] of [["b-trend", false], ["b-trend-reserva", true]]) {
+  $(id).addEventListener("click", async () => {
+    if (reserva && !confirm("Las reservadas solo se pueden ejecutar una vez, y su resultado queda apuntado pase lo que pase. ¿Seguir?")) return;
+    const r = await enviar("/api/estrategia/backtest", { reserva }).catch((e) => ({ error: e.message }));
+    if (r.error) { estado("estrategia", r.error, true); return; }
+    vigilarTrend();
+  });
+}
 
 /* ---------- Alertas ---------- */
 

@@ -63,8 +63,10 @@ def _cacheado(clave, ttl, funcion):
     return valor
 
 
-def _grafico(simbolo, intervalo, rango):
-    url = f"{BASE}{quote(simbolo, safe='')}?" + urlencode({"range": rango, "interval": intervalo})
+def _grafico(simbolo, intervalo, rango=None, desde=None, hasta=None):
+    """Un rango relativo ("10y") o, para backtests reproducibles, dos instantes fijos en segundos."""
+    parametros = {"interval": intervalo, **({"period1": desde, "period2": hasta} if desde is not None else {"range": rango})}
+    url = f"{BASE}{quote(simbolo, safe='')}?" + urlencode(parametros)
     try:
         datos = json.loads(pedir(url))
     except urllib.error.HTTPError as e:
@@ -141,6 +143,15 @@ def velas(simbolo, intervalo, corto=False):
         }
 
     return _cacheado(("velas", simbolo, intervalo, corto), 4 if corto else 20, cargar)
+
+
+def diarias(simbolo, desde, hasta):
+    """Velas diarias entre dos fechas fijas (AAAA-MM-DD, ambas incluidas). Sin caché: quien las pide las guarda,
+    para que repetir un backtest use exactamente los mismos datos."""
+    inicio = int(datetime.fromisoformat(desde).replace(tzinfo=timezone.utc).timestamp())
+    fin = int(datetime.fromisoformat(hasta).replace(tzinfo=timezone.utc).timestamp()) + 86400
+    velas_ = _velas(_grafico(simbolo, "1d", desde=inicio, hasta=fin), 86400, False)
+    return [v for v in velas_ if inicio <= v["time"] < fin]
 
 
 def horas(simbolo, desde):

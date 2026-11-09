@@ -202,6 +202,37 @@ CREATE TABLE IF NOT EXISTS simulaciones (
     datos TEXT NOT NULL,
     creado INTEGER NOT NULL
 );
+-- Contador de pruebas: cada estrategia que se ha puesto a prueba, con su veredicto. Cuantos más intentos,
+-- más fácil es que alguno salga bien por suerte: la tabla está para recordarlo.
+CREATE TABLE IF NOT EXISTS pruebas (
+    id INTEGER PRIMARY KEY,
+    nombre TEXT NOT NULL UNIQUE,
+    descripcion TEXT NOT NULL,
+    preregistro TEXT,              -- tag git del preregistro, si lo tuvo
+    veredicto TEXT NOT NULL,
+    creado TEXT NOT NULL,          -- AAAA-MM-DD
+    actualizado INTEGER
+);
+INSERT OR IGNORE INTO pruebas (id, nombre, descripcion, preregistro, veredicto, creado) VALUES
+    (1, 'fase4_reglas', 'Reglas de volumen, funding e insiders sobre 32 activos (Fase 4).', NULL, 'no pasa', '2026-11-09'),
+    (2, 'fase4_desglose', 'Desglose del backtest de la Fase 4 por tipo de activo. Exploratorio, sin preregistro.', NULL,
+        'exploratorio', '2026-11-09'),
+    (3, 'trend_v1', 'Seguir la tendencia en 8 cripto líquidas (media de 100 días, régimen de BTC, volatilidad objetivo).',
+        'prereg-trend-v1', 'pendiente', '2026-11-09');
+-- Capa 6 de trend_v1: cada decisión semanal por moneda, para auditar por qué actuó.
+CREATE TABLE IF NOT EXISTS trend_decisiones (
+    corrida TEXT NOT NULL,         -- backtest | reserva | paper
+    dia TEXT NOT NULL,             -- AAAA-MM-DD de la ejecución (lunes)
+    moneda TEXT NOT NULL,
+    regimen TEXT NOT NULL,
+    senal TEXT NOT NULL,           -- larga | liquidez
+    peso_actual REAL NOT NULL,
+    peso_objetivo REAL NOT NULL,
+    peso_final REAL NOT NULL,
+    operada INTEGER NOT NULL,
+    coste REAL NOT NULL,           -- en tanto por uno del capital
+    PRIMARY KEY (corrida, dia, moneda)
+);
 -- Tickers de la watchlist citados en listas tipo "acciones para comprar": sentimiento, no hechos.
 CREATE TABLE IF NOT EXISTS menciones (
     item_id TEXT NOT NULL REFERENCES items (id) ON DELETE CASCADE,
@@ -647,6 +678,36 @@ def simulacion(clave):
     with _lock:
         fila = _con.execute("SELECT datos, creado FROM simulaciones WHERE clave = ?", (clave,)).fetchone()
     return {**json.loads(fila["datos"]), "creado": fila["creado"]} if fila else None
+
+
+def pruebas():
+    with _lock:
+        return [dict(f) for f in _con.execute("SELECT * FROM pruebas ORDER BY id")]
+
+
+def actualizar_prueba(nombre, veredicto):
+    with _lock, _con:
+        _con.execute("UPDATE pruebas SET veredicto = ?, actualizado = ? WHERE nombre = ?",
+                     (veredicto, int(time.time()), nombre))
+
+
+def guardar_decisiones(corrida, filas):
+    """Sustituye las decisiones de esa corrida: repetir un backtest no debe mezclar dos versiones."""
+    with _lock, _con:
+        _con.execute("DELETE FROM trend_decisiones WHERE corrida = ?", (corrida,))
+        _con.executemany(
+            """INSERT INTO trend_decisiones (corrida, dia, moneda, regimen, senal, peso_actual, peso_objetivo,
+                                             peso_final, operada, coste)
+               VALUES (:corrida, :dia, :moneda, :regimen, :senal, :peso_actual, :peso_objetivo, :peso_final,
+                       :operada, :coste)""",
+            [{**f, "corrida": corrida, "operada": int(f["operada"])} for f in filas])
+
+
+def decisiones(corrida, limite=200):
+    with _lock:
+        filas = _con.execute("SELECT * FROM trend_decisiones WHERE corrida = ? ORDER BY dia DESC, moneda LIMIT ?",
+                             (corrida, limite)).fetchall()
+    return [dict(f, operada=bool(f["operada"])) for f in filas]
 
 
 def sentimiento_social(desde):

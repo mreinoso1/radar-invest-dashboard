@@ -199,6 +199,16 @@ class ApiTest(unittest.TestCase):
         self.assertEqual((codigo, r["desbloqueada"]), (200, False))
         self.assertEqual(r["partes"][0]["nota"], "Aún no se ha lanzado.")
 
+    def test_estrategia(self):
+        codigo, r = pedir("/api/estrategia")
+        self.assertEqual(codigo, 200)
+        self.assertEqual(set(r), {"preregistro", "estado", "principal", "reserva", "veredicto", "pruebas", "decisiones", "eventos"})
+        self.assertEqual((r["principal"], r["veredicto"]["veredicto"]), (None, "sin ejecutar"))
+        self.assertEqual([p["nombre"] for p in r["pruebas"]], ["fase4_reglas", "fase4_desglose", "trend_v1"])
+        with mock.patch.object(server.trend, "lanzar", return_value=None) as lanzar:
+            self.assertEqual(pedir("/api/estrategia/backtest", {"reserva": True}), (200, {"ok": True}))
+        lanzar.assert_called_once_with(True)
+
     def test_sigue_rechazando_otras_webs(self):
         codigo, _ = pedir("/api/cartera", cabeceras={"Origin": "https://malicioso.example"})
         self.assertEqual(codigo, 403)
