@@ -132,14 +132,9 @@ def es_lista(it):
     return it["fuente"] in agente.FUENTES_RELLENO or bool(agente.RELLENO.search(it["titulo"]))
 
 
-def _ticker(simbolo):
-    """Cómo se cita un activo en un texto: HYPE32196-USD es HYPE."""
-    return re.sub(r"\d*" + marcador.CRIPTO.pattern, "", simbolo) if marcador.es_cripto(simbolo) else simbolo
-
-
 def extraer_menciones(texto, universo):
     """Activos del universo citados en un texto, por ticker ("(NASDAQ: NVDA)", "$NVDA") o por nombre."""
-    por_ticker = {_ticker(s).upper(): s for s in universo}
+    por_ticker = {marcador.ticker_de(s).upper(): s for s in universo}
     citados = {t.upper() for t in CITA_BOLSA.findall(texto)} | set(CASHTAG.findall(texto))
     salida = {por_ticker[t] for t in citados if t in por_ticker}
     for simbolo, nombre in universo.items():

@@ -28,6 +28,11 @@ def es_cripto(simbolo):
     return bool(CRIPTO.search(simbolo))
 
 
+def ticker_de(simbolo):
+    """Cómo se llama un activo fuera de Yahoo: HYPE32196-USD es HYPE y BTC-USD es BTC."""
+    return re.sub(r"\d*" + CRIPTO.pattern, "", simbolo) if es_cripto(simbolo) else simbolo
+
+
 def indice_de(simbolo):
     """Con qué se compara una señal: BTC para las cripto y el S&P 500 (SPY) para lo demás."""
     indice = "BTC-USD" if es_cripto(simbolo) else "SPY"

@@ -48,6 +48,7 @@ AJUSTES_DEFECTO = {
     "alertas_por_hora": 6,
     "hora_resumen": 21,
     "alertas_niveles": "analista",  # analista | todos | ninguno: qué niveles dibujados vigilar
+    "sec_contacto": "",         # nombre y correo que la SEC exige a quien consulta EDGAR
     "gasto_usd": 0.0,
 }
 
@@ -162,6 +163,30 @@ CREATE TABLE IF NOT EXISTS eventos (
 CREATE TABLE IF NOT EXISTS estado_alertas (
     clave TEXT PRIMARY KEY,
     valor TEXT NOT NULL
+);
+-- Fase 3: foto diaria de los datos cuantitativos (para calcular cambios y para el backtest), señales que
+-- genera Python con reglas fijas, y los Form 4 ya leídos de EDGAR (no cambian: no se vuelven a pedir).
+CREATE TABLE IF NOT EXISTS cuant_historia (
+    simbolo TEXT NOT NULL,
+    dia TEXT NOT NULL,             -- AAAA-MM-DD
+    datos TEXT NOT NULL,           -- JSON
+    PRIMARY KEY (simbolo, dia)
+);
+CREATE TABLE IF NOT EXISTS senales_reglas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    regla TEXT NOT NULL,
+    simbolo TEXT NOT NULL,
+    prob_subida INTEGER NOT NULL,
+    horizonte TEXT NOT NULL,
+    detalle TEXT NOT NULL,
+    precio REAL,
+    creado INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS form4 (
+    acceso TEXT PRIMARY KEY,       -- número de acceso de la SEC
+    simbolo TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    transacciones TEXT NOT NULL    -- JSON
 );
 -- Tickers de la watchlist citados en listas tipo "acciones para comprar": sentimiento, no hechos.
 CREATE TABLE IF NOT EXISTS menciones (
@@ -370,7 +395,7 @@ def senales():
     """Análisis que se le enseñaron al usuario como relevantes, con sus impactos por activo."""
     with _lock:
         filas = _con.execute(
-            """SELECT a.item_id, a.titulo, a.impactos, a.modelo, a.creado, i.tipo, i.fuente, i.url, i.fecha
+            """SELECT a.item_id, a.titulo, a.categoria, a.impactos, a.modelo, a.creado, i.tipo, i.fuente, i.url, i.fecha
                FROM analisis a JOIN items i ON i.id = a.item_id
                WHERE a.relevante = 1 ORDER BY a.creado DESC""",
         ).fetchall()
@@ -545,6 +570,43 @@ def analisis_importantes(desde, minimo=4):
             (minimo, desde),
         ).fetchall()
     return [dict(f, impactos=json.loads(f["impactos"])) for f in filas]
+
+
+def guardar_cuant(simbolo, dia, valores):
+    with _lock, _con:
+        _con.execute("INSERT OR REPLACE INTO cuant_historia (simbolo, dia, datos) VALUES (?, ?, ?)",
+                     (simbolo, dia, json.dumps(valores, ensure_ascii=False)))
+
+
+def cuant_de(simbolo, dia):
+    with _lock:
+        fila = _con.execute("SELECT datos FROM cuant_historia WHERE simbolo = ? AND dia = ?", (simbolo, dia)).fetchone()
+    return json.loads(fila["datos"]) if fila else None
+
+
+def guardar_senal_regla(s):
+    with _lock, _con:
+        return _con.execute(
+            """INSERT INTO senales_reglas (regla, simbolo, prob_subida, horizonte, detalle, precio, creado)
+               VALUES (:regla, :simbolo, :prob_subida, :horizonte, :detalle, :precio, :creado)""", s).lastrowid
+
+
+def senales_reglas(desde=0):
+    with _lock:
+        filas = _con.execute("SELECT * FROM senales_reglas WHERE creado >= ? ORDER BY creado DESC", (desde,)).fetchall()
+    return [dict(f) for f in filas]
+
+
+def form4_guardados(simbolo, desde_fecha):
+    with _lock:
+        filas = _con.execute("SELECT * FROM form4 WHERE simbolo = ? AND fecha >= ?", (simbolo, desde_fecha)).fetchall()
+    return {f["acceso"]: dict(f, transacciones=json.loads(f["transacciones"])) for f in filas}
+
+
+def guardar_form4(acceso, simbolo, fecha, transacciones):
+    with _lock, _con:
+        _con.execute("INSERT OR REPLACE INTO form4 (acceso, simbolo, fecha, transacciones) VALUES (?, ?, ?, ?)",
+                     (acceso, simbolo, fecha, json.dumps(transacciones, ensure_ascii=False)))
 
 
 def sentimiento_social(desde):

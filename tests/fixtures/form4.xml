@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!-- Form 4 inventado con la estructura real de la SEC: una compra, una venta, un premio y una donación en
+     acciones, y un ejercicio de opciones en la tabla de derivados (que no debe contar). -->
+<ownershipDocument>
+    <documentType>4</documentType>
+    <issuer><issuerCik>0000000001</issuerCik><issuerTradingSymbol>EJEM</issuerTradingSymbol></issuer>
+    <reportingOwner>
+        <reportingOwnerId><rptOwnerCik>0000000002</rptOwnerCik><rptOwnerName>PEREZ ANA</rptOwnerName></reportingOwnerId>
+        <reportingOwnerRelationship><isDirector>0</isDirector><isOfficer>1</isOfficer><officerTitle>CFO</officerTitle></reportingOwnerRelationship>
+    </reportingOwner>
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <transactionDate><value>2026-10-01</value></transactionDate>
+            <transactionCoding><transactionFormType>4</transactionFormType><transactionCode>P</transactionCode></transactionCoding>
+            <transactionAmounts><transactionShares><value>1000</value></transactionShares><transactionPricePerShare><value>50.5</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode></transactionAmounts>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <transactionDate><value>2026-10-05</value></transactionDate>
+            <transactionCoding><transactionFormType>4</transactionFormType><transactionCode>S</transactionCode></transactionCoding>
+            <transactionAmounts><transactionShares><value>200</value></transactionShares><transactionPricePerShare><value>55</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode></transactionAmounts>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <transactionDate><value>2026-10-06</value></transactionDate>
+            <transactionCoding><transactionFormType>4</transactionFormType><transactionCode>A</transactionCode></transactionCoding>
+            <transactionAmounts><transactionShares><value>5000</value></transactionShares><transactionPricePerShare><value>0</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode></transactionAmounts>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <transactionDate><value>2026-10-07</value></transactionDate>
+            <transactionCoding><transactionFormType>4</transactionFormType><transactionCode>G</transactionCode></transactionCoding>
+            <transactionAmounts><transactionShares><value>50000</value></transactionShares><transactionPricePerShare><value>0</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode></transactionAmounts>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+    <derivativeTable>
+        <derivativeTransaction>
+            <transactionDate><value>2026-10-08</value></transactionDate>
+            <transactionCoding><transactionFormType>4</transactionFormType><transactionCode>P</transactionCode></transactionCoding>
+            <transactionAmounts><transactionShares><value>9999</value></transactionShares><transactionPricePerShare><value>1</value></transactionPricePerShare></transactionAmounts>
+        </derivativeTransaction>
+    </derivativeTable>
+</ownershipDocument>
