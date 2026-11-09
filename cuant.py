@@ -148,8 +148,9 @@ def cripto(simbolo, ahora):
             "prima": hl and hl["prima"], "oi_usd": oi, "oi_24h": _cambio(oi, hace(1)), "oi_7d": _cambio(oi, hace(7))}
 
 
-def de_activo(simbolo, ahora=None):
-    """Todo lo cuantitativo de un activo. Se guarda en caché unas horas."""
+def de_activo(simbolo, ahora=None, con_insiders=True):
+    """Todo lo cuantitativo de un activo. Se guarda en caché unas horas. Los insiders pueden tardar la primera
+    vez (decenas de Form 4 a ritmo de la SEC): con muchos activos a la vez se pueden dejar fuera."""
     ahora = ahora or time.time()
 
     def cargar():
@@ -164,10 +165,11 @@ def de_activo(simbolo, ahora=None):
             resumen = mercado.resumen_yahoo(simbolo, ["earningsTrend", "defaultKeyStatistics"])
             salida["revisiones"] = revisiones(resumen)
             salida["cortos"] = cortos(resumen)
-            salida["insiders"] = _seguro(edgar.resumen, simbolo)
+            if con_insiders:
+                salida["insiders"] = _seguro(edgar.resumen, simbolo)
         return salida
 
-    return mercado._cacheado(("cuant", simbolo), 3 * 3600, cargar)
+    return mercado._cacheado(("cuant", simbolo, con_insiders), 3 * 3600, cargar)
 
 
 def macro():
@@ -253,16 +255,24 @@ def texto_macro(m):
     return lineas
 
 
-def bloque(simbolos, con_macro=True):
+def bloque(simbolos, con_macro=True, con_insiders=True):
     """El bloque <datos_cuantitativos> para el modelo."""
     lineas = []
     for s in simbolos:
-        filas = texto_activo(de_activo(s))
+        filas = texto_activo(de_activo(s, con_insiders=con_insiders))
         if filas:
             lineas.append(f"{s}:\n  " + "\n  ".join(filas))
     if con_macro:
         lineas += texto_macro(macro())
     return "<datos_cuantitativos>\n" + "\n".join(lineas) + "\n</datos_cuantitativos>\n" if lineas else ""
+
+
+def bloque_seguro(simbolos, con_macro=True, con_insiders=True):
+    """bloque(), pero un fallo inesperado deja el bloque vacío en vez de tumbar un análisis."""
+    try:
+        return bloque(simbolos, con_macro, con_insiders)
+    except Exception:
+        return ""
 
 
 def foto_diaria(simbolos, ahora=None):
