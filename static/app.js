@@ -95,7 +95,7 @@ function estado(tipo, texto, error = false) {
 /* ---------- Navegación ---------- */
 
 function irA(vista) {
-  if (!["mercado", "cartera", "noticias", "ideas", "social", "aciertos", "ajustes"].includes(vista)) vista = "mercado";
+  if (!["mercado", "cartera", "noticias", "ideas", "social", "aciertos", "alertas", "ajustes"].includes(vista)) vista = "mercado";
   S.vista = vista;
   document.querySelectorAll(".vista-texto").forEach((v) => { v.hidden = v.id !== `v-${vista}`; });
   $("v-mercado").classList.toggle("en-reposo", vista !== "mercado");
@@ -107,6 +107,7 @@ function irA(vista) {
   if (vista === "ideas") cargarIdeas();
   if (vista === "social") { pintarFeed("social"); cargarSentimiento(); }
   if (vista === "aciertos") cargarAciertos();
+  if (vista === "alertas") { cargarAlertas(); cargarCalendario(); }
   if (vista === "ajustes") pintarAjustes();
 }
 window.addEventListener("hashchange", () => irA(location.hash.slice(1)));
@@ -1252,6 +1253,144 @@ $("v-ideas").addEventListener("click", (e) => {
   if (b) abrirActivo(b.dataset.abrir);
 });
 
+/* ---------- Alertas ---------- */
+
+const TIPOS_ALERTA = { precio: "Precio", nivel: "Nivel", noticia: "Noticia", movimiento: "Movimiento", calendario: "Calendario", resumen: "Resumen" };
+const CANALES = { windows: "Windows", telegram: "Telegram", ntfy: "ntfy", resumen: "resumen diario" };
+const TIPOS_EVENTO = { resultados: "Resultados", fed: "Fed", macro: "Macro", manual: "Tuyo" };
+S.alertas = null;
+
+async function refrescarInsignia() {
+  const r = await api("/api/alertas/no_leidas").catch(() => null);
+  if (!r) return;
+  $("insignia-alertas").hidden = !r.n;
+  $("insignia-alertas").textContent = r.n > 99 ? "99+" : r.n;
+}
+
+function envioTexto(enviada) {
+  if (!enviada) return '<span class="neutro">Espera al resumen diario</span>';
+  return Object.entries(enviada).map(([canal, r]) => (r === "ok"
+    ? `<span class="sube">✓ ${esc(CANALES[canal] || canal)}</span>`
+    : `<span class="baja" title="${esc(r)}">✗ ${esc(CANALES[canal] || canal)}: ${esc(r)}</span>`)).join(" · ") || '<span class="neutro">Sin canales activos</span>';
+}
+
+async function cargarAlertas() {
+  try {
+    S.alertas = await api("/api/alertas");
+  } catch (e) {
+    estado("alertas", e.message, true);
+    return;
+  }
+  const a = S.alertas;
+  $("al-historial").innerHTML = a.alertas.length ? a.alertas.map((x) => `<article class="tarjeta alerta ${x.leida ? "" : "nueva"}">
+      <div class="tarjeta-cab"><span class="etiqueta">${esc(TIPOS_ALERTA[x.tipo] || x.tipo)}</span>
+        ${x.simbolo ? `<button class="chip" data-abrir="${esc(x.simbolo)}">${esc(x.simbolo)}</button>` : ""}
+        <span>${hace(x.creada)}</span><span class="derecha">${envioTexto(x.enviada)}</span></div>
+      <h3>${esc(x.titulo)}</h3>${x.texto ? `<p class="alerta-texto">${esc(x.texto)}</p>` : ""}
+    </article>`).join("")
+    : '<p class="vacio">Aún no ha saltado ninguna alerta. Crea una de precio a la derecha, o deja que Radar vigile los niveles del analista y el calendario.</p>';
+  const condicion = { sube_de: "suba de", baja_de: "baje de" };
+  $("al-reglas").innerHTML = a.reglas.length ? a.reglas.map((r) => `<div class="regla ${r.activa ? "" : "hecha"}">
+      <div><b>${esc(r.simbolo)}</b> ${condicion[r.condicion]} <b class="num">${precioTxt(r.nivel)}</b>
+        <button class="enlace" data-borrar-regla="${r.id}">Quitar</button></div>
+      <small>${r.activa ? "Vigilando" : `Saltó ${hace(r.disparada)}`}${r.nota ? ` · ${esc(r.nota)}` : ""}</small></div>`).join("")
+    : '<p class="nota">Ninguna todavía.</p>';
+  pintarSelectoresAlerta();
+  if (S.vista === "alertas" && a.no_leidas) refrescarInsignia();
+}
+
+async function cargarCalendario() {
+  estado("calendario", "Consultando…");
+  try {
+    const c = await api("/api/calendario");
+    estado("calendario", c.errores.join(" · "), c.errores.length > 0);
+    const dia = (ts) => new Date(ts * 1000).toLocaleString("es-ES", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    $("al-calendario").innerHTML = `<thead><tr><th>Cuándo (tu hora)</th><th>Qué</th><th>Tipo</th><th>Activo</th><th><span hidden>Acciones</span></th></tr></thead>
+      <tbody>${c.eventos.length ? c.eventos.map((e) => `<tr>
+        <td>${dia(e.fecha)} <small class="neutro">${faltan(e.fecha)}</small></td><td>${esc(e.titulo)}</td>
+        <td>${esc(TIPOS_EVENTO[e.tipo] || e.tipo)}</td>
+        <td>${e.simbolo ? `<button class="activo" data-abrir="${esc(e.simbolo)}"><b>${esc(e.simbolo)}</b></button>` : "—"}</td>
+        <td>${e.evento_id ? `<button class="enlace" data-borrar-evento="${e.evento_id}">Quitar</button>` : ""}</td></tr>`).join("")
+      : '<tr><td colspan="5" class="vacio-mini">Nada en los próximos 14 días.</td></tr>'}</tbody>`;
+  } catch (e) {
+    estado("calendario", e.message, true);
+  }
+}
+
+function pintarSelectoresAlerta() {
+  const opciones = S.cartera.filas.map((f) => `<option value="${esc(f.simbolo)}">${esc(f.simbolo)}</option>`).join("");
+  const elegido = $("r-simbolo").value;
+  $("r-simbolo").innerHTML = opciones;
+  if (elegido) $("r-simbolo").value = elegido;
+  if (S.rellenarAlerta) {  // viene del botón «Alerta aquí» de la gráfica
+    $("r-simbolo").value = S.rellenarAlerta.simbolo;
+    $("r-nivel").value = S.rellenarAlerta.nivel;
+    S.rellenarAlerta = null;
+    $("r-nivel").focus();
+  }
+  const evento = $("e-simbolo").value;
+  $("e-simbolo").innerHTML = `<option value="">Ninguno (macro)</option>${opciones}`;
+  $("e-simbolo").value = evento;
+  mostrarPrecioRegla();
+}
+
+function mostrarPrecioRegla() {
+  const f = S.cartera.filas.find((x) => x.simbolo === $("r-simbolo").value);
+  $("r-actual").textContent = f?.precio ? `· ahora ${precioTxt(f.precio)} ${f.moneda}` : "";
+}
+
+$("r-simbolo").addEventListener("change", mostrarPrecioRegla);
+$("b-alerta").addEventListener("click", () => {
+  const f = S.cartera.filas.find((x) => x.simbolo === S.simbolo);
+  $("r-estado").textContent = f ? "" : `Añade ${S.simbolo} a tu cartera o watchlist para vigilarlo.`;
+  if (f) S.rellenarAlerta = { simbolo: f.simbolo, nivel: f.precio ? Number(f.precio.toPrecision(6)) : "" };
+  location.hash = "alertas";
+});
+
+$("form-regla").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await enviar("/api/alertas/reglas", { simbolo: $("r-simbolo").value, condicion: $("r-condicion").value,
+      nivel: $("r-nivel").value, nota: $("r-nota").value });
+    $("r-estado").textContent = "Creada. Te avisará una vez y quedará desactivada.";
+    $("r-estado").classList.remove("error");
+    $("r-nivel").value = "";
+    $("r-nota").value = "";
+    cargarAlertas();
+  } catch (err) {
+    $("r-estado").textContent = err.message;
+    $("r-estado").classList.add("error");
+  }
+});
+
+$("form-evento").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await enviar("/api/eventos", { titulo: $("e-titulo").value, simbolo: $("e-simbolo").value,
+      fecha: Math.floor(new Date($("e-fecha").value).getTime() / 1000) });
+    $("e-estado").textContent = "Añadido: te avisará 24 h antes.";
+    $("form-evento").reset();
+    cargarCalendario();
+  } catch (err) {
+    $("e-estado").textContent = err.message;
+  }
+});
+
+$("b-leidas").addEventListener("click", async () => {
+  await enviar("/api/alertas/leidas").catch(() => {});
+  refrescarInsignia();
+  cargarAlertas();
+});
+
+$("v-alertas").addEventListener("click", async (e) => {
+  const t = e.target.closest("[data-abrir],[data-borrar-regla],[data-borrar-evento]");
+  if (!t) return;
+  if (t.dataset.abrir) return abrirActivo(t.dataset.abrir);
+  const ruta = t.dataset.borrarRegla ? `/api/alertas/reglas?id=${t.dataset.borrarRegla}` : `/api/eventos?id=${t.dataset.borrarEvento}`;
+  await api(ruta, { method: "DELETE" }).catch(() => {});
+  if (t.dataset.borrarRegla) cargarAlertas(); else cargarCalendario();
+});
+
 /* ---------- Ajustes ---------- */
 
 function pintarAjustes() {
@@ -1267,6 +1406,24 @@ function pintarAjustes() {
   $("a-max-ideas").value = c.max_ideas;
   $("a-com-acciones").value = c.comision_acciones;
   $("a-com-cripto").value = c.comision_cripto;
+  $("a-al-windows").checked = c.alertas_windows;
+  $("a-al-telegram").checked = c.alertas_telegram;
+  $("a-al-ntfy").checked = c.alertas_ntfy;
+  $("a-al-minimas").checked = c.alertas_minimas;
+  $("a-tg-token").value = "";
+  $("a-tg-token").placeholder = c.tiene_telegram ? "Guardado. Escribe otro para cambiarlo" : "Créalo hablando con @BotFather en Telegram";
+  $("a-tg-estado").textContent = c.tiene_telegram ? "● Guardado" : "";
+  $("a-tg-chat").value = c.telegram_chat;
+  $("a-ntfy-tema").value = c.ntfy_tema;
+  $("a-ntfy-servidor-txt").textContent = `Servidor: ${c.ntfy_servidor}`;
+  $("a-al-niveles").value = c.alertas_niveles;
+  $("a-al-mov-acc").value = c.alerta_mov_acciones;
+  $("a-al-mov-cri").value = c.alerta_mov_cripto;
+  $("a-al-hora").value = c.alertas_por_hora;
+  $("a-al-resumen").value = c.hora_resumen;
+  $("a-fred").value = "";
+  $("a-fred").placeholder = c.tiene_fred ? "Guardada. Escribe otra para cambiarla" : "Opcional: fechas de IPC, empleo, PIB y PCE";
+  $("a-fred-estado").textContent = c.tiene_fred ? "● Configurada" : "";
   $("a-auto").checked = c.auto_analizar;
   $("a-resumen-auto").checked = c.resumen_auto;
   $("a-moneda").value = c.moneda;
@@ -1321,7 +1478,14 @@ $("form-ajustes").addEventListener("submit", async (e) => {
     max_analisis: $("a-max").value, auto_analizar: $("a-auto").checked, resumen_auto: $("a-resumen-auto").checked,
     moneda: $("a-moneda").value, max_oportunidades: $("a-max-oport").value, max_ideas: $("a-max-ideas").value,
     comision_acciones: $("a-com-acciones").value, comision_cripto: $("a-com-cripto").value,
+    alertas_windows: $("a-al-windows").checked, alertas_telegram: $("a-al-telegram").checked,
+    alertas_ntfy: $("a-al-ntfy").checked, alertas_minimas: $("a-al-minimas").checked,
+    telegram_chat: $("a-tg-chat").value, ntfy_tema: $("a-ntfy-tema").value, alertas_niveles: $("a-al-niveles").value,
+    alerta_mov_acciones: $("a-al-mov-acc").value, alerta_mov_cripto: $("a-al-mov-cri").value,
+    alertas_por_hora: $("a-al-hora").value, hora_resumen: $("a-al-resumen").value,
   };
+  if ($("a-tg-token").value.trim()) cuerpo.telegram_token = $("a-tg-token").value.trim();
+  if ($("a-fred").value.trim()) cuerpo.fred_key = $("a-fred").value.trim();
   if ($("a-clave").value.trim()) cuerpo.anthropic_key = $("a-clave").value;
   if ($("a-x").value.trim()) cuerpo.x_token = $("a-x").value;
   for (const [pub, priv, cPub, cPriv] of [["a-kraken-key", "a-kraken-secret", "kraken_key", "kraken_secret"],
@@ -1342,6 +1506,23 @@ $("form-ajustes").addEventListener("submit", async (e) => {
     $("ajustes-estado").textContent = "Guardado";
     $("ajustes-estado").classList.remove("error");
     refrescarCartera();
+  } catch (err) {
+    $("ajustes-estado").textContent = err.message;
+    $("ajustes-estado").classList.add("error");
+  }
+});
+
+$("form-ajustes").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-probar]");
+  if (!b) return;
+  e.preventDefault();  // el botón está dentro de la etiqueta de la casilla: que no la marque
+  $("ajustes-estado").textContent = "Enviando prueba…";
+  $("ajustes-estado").classList.remove("error");
+  try {
+    const r = await enviar("/api/alertas/probar", { canal: b.dataset.probar });
+    const resultado = r[b.dataset.probar];
+    $("ajustes-estado").textContent = resultado === "ok" ? `Prueba enviada por ${CANALES[b.dataset.probar]}` : resultado;
+    $("ajustes-estado").classList.toggle("error", resultado !== "ok");
   } catch (err) {
     $("ajustes-estado").textContent = err.message;
     $("ajustes-estado").classList.add("error");
@@ -1552,6 +1733,8 @@ async function arrancar() {
   const ideas = await api("/api/ideas/estado").catch(() => null);
   if (ideas?.activo) vigilarIdeas();
 
+  refrescarInsignia();
+  setInterval(refrescarInsignia, 30000);
   setInterval(refrescarCola, 10000);
   setInterval(refrescarIndices, 30000);
   setInterval(() => { refrescarCartera(); if (S.vista === "mercado") refrescarVariacion(); }, 30000);

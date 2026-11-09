@@ -33,6 +33,21 @@ AJUSTES_DEFECTO = {
     "max_ideas": 5,            # activos distintos que puede proponer en cada pasada
     "comision_acciones": 0.10,  # % de ida y vuelta que el marcador descuenta a cada señal
     "comision_cripto": 0.52,    # dos veces la comisión taker de Kraken
+    # Alertas: canales, umbrales y límites contra el spam.
+    "alertas_windows": True,
+    "alertas_telegram": False,
+    "alertas_ntfy": False,
+    "alertas_minimas": False,   # Telegram y ntfy reciben solo "hay una alerta", sin activos ni precios
+    "telegram_token": "",
+    "telegram_chat": "",
+    "ntfy_servidor": "https://ntfy.sh",
+    "ntfy_tema": "",
+    "fred_key": "",             # gratuita, de solo lectura: fechas de IPC, empleo, PIB y PCE
+    "alerta_mov_acciones": 5.0,  # % en el día que se considera un movimiento fuerte
+    "alerta_mov_cripto": 8.0,
+    "alertas_por_hora": 6,
+    "hora_resumen": 21,
+    "alertas_niveles": "analista",  # analista | todos | ninguno: qué niveles dibujados vigilar
     "gasto_usd": 0.0,
 }
 
@@ -113,6 +128,41 @@ CREATE TABLE IF NOT EXISTS ideas (
     creado INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ideas_creado ON ideas (creado DESC);
+-- Alertas: reglas de precio del usuario, historial de avisos, eventos de calendario manuales y el estado
+-- que el vigilante necesita entre rondas (último precio visto, niveles armados...).
+CREATE TABLE IF NOT EXISTS reglas_alerta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    simbolo TEXT NOT NULL,
+    condicion TEXT NOT NULL,       -- sube_de | baja_de
+    nivel REAL NOT NULL,
+    nota TEXT NOT NULL DEFAULT '',
+    activa INTEGER NOT NULL DEFAULT 1,
+    creada INTEGER NOT NULL,
+    disparada INTEGER
+);
+CREATE TABLE IF NOT EXISTS alertas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    clave TEXT NOT NULL,           -- identidad: la misma clave no se avisa dos veces
+    tipo TEXT NOT NULL,            -- precio | nivel | noticia | movimiento | calendario | resumen
+    simbolo TEXT,
+    titulo TEXT NOT NULL,
+    texto TEXT NOT NULL,
+    urgente INTEGER NOT NULL,
+    creada INTEGER NOT NULL,
+    enviada TEXT,                  -- JSON {canal: "ok" o error}; NULL = espera al resumen diario
+    leida INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS alertas_creada ON alertas (creada DESC);
+CREATE TABLE IF NOT EXISTS eventos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    simbolo TEXT,
+    titulo TEXT NOT NULL,
+    fecha INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS estado_alertas (
+    clave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
+);
 -- Tickers de la watchlist citados en listas tipo "acciones para comprar": sentimiento, no hechos.
 CREATE TABLE IF NOT EXISTS menciones (
     item_id TEXT NOT NULL REFERENCES items (id) ON DELETE CASCADE,
@@ -388,6 +438,113 @@ def menciones(desde):
         salida.setdefault(f["simbolo"], []).append({"titulo": f["titulo"], "fuente": f["fuente"], "url": f["url"],
                                                     "fecha": f["fecha"]})
     return salida
+
+
+def reglas_alerta(solo_activas=False):
+    with _lock:
+        filas = _con.execute("SELECT * FROM reglas_alerta" + (" WHERE activa = 1" if solo_activas else "")
+                             + " ORDER BY activa DESC, creada DESC").fetchall()
+    return [dict(f) for f in filas]
+
+
+def guardar_regla(simbolo, condicion, nivel, nota=""):
+    with _lock, _con:
+        return _con.execute(
+            "INSERT INTO reglas_alerta (simbolo, condicion, nivel, nota, creada) VALUES (?, ?, ?, ?, ?)",
+            (simbolo, condicion, nivel, nota, int(time.time())),
+        ).lastrowid
+
+
+def disparar_regla(regla_id, cuando):
+    """Las reglas de precio avisan una vez: después quedan desactivadas."""
+    with _lock, _con:
+        _con.execute("UPDATE reglas_alerta SET activa = 0, disparada = ? WHERE id = ?", (cuando, regla_id))
+
+
+def borrar_regla(regla_id):
+    with _lock, _con:
+        _con.execute("DELETE FROM reglas_alerta WHERE id = ?", (regla_id,))
+
+
+def guardar_alerta(a, enviada=None, cuando=None):
+    with _lock, _con:
+        return _con.execute(
+            """INSERT INTO alertas (clave, tipo, simbolo, titulo, texto, urgente, creada, enviada)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (a["clave"], a["tipo"], a.get("simbolo"), a["titulo"], a["texto"], int(a["urgente"]),
+             cuando or int(time.time()), json.dumps(enviada, ensure_ascii=False) if enviada is not None else None),
+        ).lastrowid
+
+
+def marcar_enviadas(ids, enviada):
+    with _lock, _con:
+        _con.executemany("UPDATE alertas SET enviada = ? WHERE id = ?",
+                         [(json.dumps(enviada, ensure_ascii=False), i) for i in ids])
+
+
+def alertas(desde=0, limite=200):
+    with _lock:
+        filas = _con.execute("SELECT * FROM alertas WHERE creada >= ? ORDER BY creada DESC, id DESC LIMIT ?",
+                             (desde, limite)).fetchall()
+    return [dict(f, enviada=json.loads(f["enviada"]) if f["enviada"] else None) for f in filas]
+
+
+def alertas_sin_enviar():
+    """Las que esperan al resumen diario."""
+    with _lock:
+        filas = _con.execute("SELECT * FROM alertas WHERE enviada IS NULL ORDER BY creada").fetchall()
+    return [dict(f) for f in filas]
+
+
+def marcar_leidas():
+    with _lock, _con:
+        _con.execute("UPDATE alertas SET leida = 1 WHERE leida = 0")
+
+
+def no_leidas():
+    with _lock:
+        return _con.execute("SELECT COUNT(*) FROM alertas WHERE leida = 0").fetchone()[0]
+
+
+def eventos(desde=0):
+    with _lock:
+        filas = _con.execute("SELECT * FROM eventos WHERE fecha >= ? ORDER BY fecha", (desde,)).fetchall()
+    return [dict(f) for f in filas]
+
+
+def guardar_evento(simbolo, titulo, fecha):
+    with _lock, _con:
+        return _con.execute("INSERT INTO eventos (simbolo, titulo, fecha) VALUES (?, ?, ?)",
+                            (simbolo or None, titulo, fecha)).lastrowid
+
+
+def borrar_evento(evento_id):
+    with _lock, _con:
+        _con.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
+
+
+def estado_alertas(clave, defecto=None):
+    with _lock:
+        fila = _con.execute("SELECT valor FROM estado_alertas WHERE clave = ?", (clave,)).fetchone()
+    return json.loads(fila["valor"]) if fila else defecto
+
+
+def guardar_estado_alertas(clave, valor):
+    with _lock, _con:
+        _con.execute("INSERT OR REPLACE INTO estado_alertas (clave, valor) VALUES (?, ?)",
+                     (clave, json.dumps(valor, ensure_ascii=False)))
+
+
+def analisis_importantes(desde, minimo=4):
+    """Análisis relevantes de importancia alta creados desde `desde`, con sus impactos."""
+    with _lock:
+        filas = _con.execute(
+            """SELECT a.item_id, a.titulo, a.importancia, a.impactos, a.creado, i.fuente, i.url
+               FROM analisis a JOIN items i ON i.id = a.item_id
+               WHERE a.relevante = 1 AND a.importancia >= ? AND a.creado > ? ORDER BY a.creado""",
+            (minimo, desde),
+        ).fetchall()
+    return [dict(f, impactos=json.loads(f["impactos"])) for f in filas]
 
 
 def sentimiento_social(desde):

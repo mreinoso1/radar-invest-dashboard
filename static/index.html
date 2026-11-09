@@ -28,6 +28,7 @@
     <a href="#ideas" data-vista="ideas"><svg viewBox="0 0 24 24"><path d="M9 17.5h6M10 20.5h4M12 3.5a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2v1h5v-1c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3.5z"/></svg>Ideas</a>
     <a href="#social" data-vista="social"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H10l-4.5 3.5v-3.5H4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>Social</a>
     <a href="#aciertos" data-vista="aciertos"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="m12 12 7-7M16 5h3v3"/></svg>Aciertos</a>
+    <a href="#alertas" data-vista="alertas"><svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/></svg>Alertas<span class="insignia-rail" id="insignia-alertas" hidden></span></a>
     <a href="#ajustes" data-vista="ajustes" class="abajo"><svg viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 12h3m4 0h9M4 17h11m4 0h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>Ajustes</a>
   </nav>
 
@@ -60,6 +61,7 @@
             <button id="b-log" class="boton fino" aria-pressed="false" title="Escala logarítmica">Log</button>
             <button id="b-ajustar" class="boton fino" title="Ver todo el histórico">Ajustar</button>
             <div class="segmentos disposicion" id="disposicion" role="group" aria-label="Gráficas a la vez"></div>
+            <button id="b-alerta" class="boton fino" title="Crear una alerta de precio para este activo">Alerta aquí</button>
             <button id="b-tv" class="boton fino" aria-pressed="false" title="Abre el widget oficial de TradingView, con todas sus herramientas. Lo que dibujes ahí no se guarda en Radar.">TradingView</button>
             <button id="b-lateral" class="boton fino b-lateral" aria-pressed="false" aria-controls="lateral">Analista</button>
           </div>
@@ -253,6 +255,55 @@
       </div>
     </section>
 
+    <!-- ALERTAS -->
+    <section class="vista vista-texto" id="v-alertas" hidden>
+      <div class="cabecera-vista">
+        <h1>Alertas</h1>
+        <div class="acciones">
+          <span class="estado" id="estado-alertas" role="status"></span>
+          <button class="boton" id="b-leidas">Marcar todo como leído</button>
+        </div>
+      </div>
+      <p class="nota-vista">Radar comprueba cada minuto tus precios, los niveles dibujados, las noticias importantes y el calendario, y te avisa por los canales que elijas en <a href="#ajustes">Ajustes</a>. Solo funciona mientras la ventana de Radar esté abierta. Lo menos urgente se agrupa en un resumen diario.</p>
+      <div class="dos-columnas">
+        <div>
+          <h2 class="ac-titulo">Historial</h2>
+          <div class="feed" id="al-historial"></div>
+        </div>
+        <aside class="balance">
+          <h2>Nueva alerta de precio</h2>
+          <form class="form-mini" id="form-regla" autocomplete="off">
+            <label for="r-simbolo">Activo</label>
+            <select id="r-simbolo" required></select>
+            <label for="r-condicion">Avísame cuando</label>
+            <select id="r-condicion"><option value="baja_de">baje de</option><option value="sube_de">suba de</option></select>
+            <label for="r-nivel">Precio <span class="nota" id="r-actual"></span></label>
+            <input id="r-nivel" type="number" step="any" min="0" required>
+            <label for="r-nota">Nota (opcional)</label>
+            <input id="r-nota" type="text" maxlength="200" placeholder="Por qué te importa este nivel">
+            <button class="boton primario" type="submit">Crear alerta</button>
+            <p class="nota" id="r-estado" role="status"></p>
+          </form>
+          <h2>Tus alertas de precio</h2>
+          <div id="al-reglas"></div>
+        </aside>
+      </div>
+
+      <div class="cabecera-vista calendario-cab">
+        <h2>Calendario · próximos 14 días</h2>
+        <span class="estado" id="estado-calendario" role="status"></span>
+      </div>
+      <p class="nota">Resultados de tus empresas (Yahoo), decisiones de la Fed y, si añades tu clave gratuita de FRED en Ajustes, IPC, empleo, PIB y PCE. Te avisa 24 h antes. Los desbloqueos de tokens no tienen una fuente gratuita fiable: añádelos tú.</p>
+      <div class="tabla-envoltura"><table class="tabla texto" id="al-calendario"></table></div>
+      <form class="formulario form-evento" id="form-evento" autocomplete="off">
+        <div class="campo"><label for="e-titulo">Evento manual</label><input id="e-titulo" type="text" maxlength="160" placeholder="Desbloqueo de 10 M de HYPE" required></div>
+        <div class="campo"><label for="e-simbolo">Activo (opcional)</label><select id="e-simbolo"></select></div>
+        <div class="campo"><label for="e-fecha">Fecha y hora</label><input id="e-fecha" type="datetime-local" required></div>
+        <button class="boton" type="submit">Añadir</button>
+        <p class="nota" id="e-estado" role="status"></p>
+      </form>
+    </section>
+
     <!-- AJUSTES -->
     <section class="vista vista-texto vista-ajustes" id="v-ajustes" hidden>
       <div class="cabecera-vista"><h1>Ajustes</h1></div>
@@ -339,6 +390,46 @@
           <label for="a-com-cripto">Comisión de ida y vuelta en cripto (%)</label>
           <input id="a-com-cripto" type="number" min="0" max="5" step="0.01">
           <p class="nota">El marcador las resta a cada señal. Por defecto 0,52 % en cripto, dos veces la comisión taker de Kraken.</p>
+        </div>
+
+        <h2>Alertas</h2>
+        <p class="nota">Funcionan mientras la ventana de Radar esté abierta. Pulsa «Guardar» antes de probar un canal.</p>
+        <label class="casilla"><input id="a-al-windows" type="checkbox"> Notificación de Windows <button class="enlace" type="button" data-probar="windows">Enviar prueba</button></label>
+        <label class="casilla"><input id="a-al-telegram" type="checkbox"> Telegram <button class="enlace" type="button" data-probar="telegram">Enviar prueba</button></label>
+        <div class="campo sub">
+          <label for="a-tg-token">Token del bot <span class="insignia" id="a-tg-estado"></span></label>
+          <input id="a-tg-token" type="password" autocomplete="off" spellcheck="false" placeholder="Créalo hablando con @BotFather en Telegram">
+          <label for="a-tg-chat">Tu chat id</label>
+          <input id="a-tg-chat" type="text" autocomplete="off" spellcheck="false" placeholder="Escríbele algo a tu bot y míralo en @userinfobot">
+        </div>
+        <label class="casilla"><input id="a-al-ntfy" type="checkbox"> ntfy (app gratuita para el móvil) <button class="enlace" type="button" data-probar="ntfy">Enviar prueba</button></label>
+        <div class="campo sub">
+          <label for="a-ntfy-tema">Tema</label>
+          <input id="a-ntfy-tema" type="text" autocomplete="off" spellcheck="false" placeholder="Se crea uno aleatorio al activarlo">
+          <p class="nota">Suscríbete a este tema en la app de ntfy. Quien lo conozca puede leer tus avisos: no lo compartas. <span id="a-ntfy-servidor-txt"></span></p>
+        </div>
+        <label class="casilla"><input id="a-al-minimas" type="checkbox"> En Telegram y ntfy, solo «hay una alerta», sin activos ni precios</label>
+        <div class="campo">
+          <label for="a-al-niveles">Niveles dibujados que vigilar</label>
+          <select id="a-al-niveles"><option value="analista">Los que propone el analista</option><option value="todos">Todos, también los míos</option><option value="ninguno">Ninguno</option></select>
+        </div>
+        <div class="campo">
+          <label for="a-al-mov-acc">Movimiento fuerte en un día: acciones y ETF (%)</label>
+          <input id="a-al-mov-acc" type="number" min="0.5" max="50" step="0.5">
+          <label for="a-al-mov-cri">Cripto (%)</label>
+          <input id="a-al-mov-cri" type="number" min="0.5" max="50" step="0.5">
+          <p class="nota">Por encima de este umbral va al resumen diario; por encima del doble, te avisa al momento.</p>
+        </div>
+        <div class="campo">
+          <label for="a-al-hora">Avisos inmediatos como mucho por hora</label>
+          <input id="a-al-hora" type="number" min="1" max="60" step="1">
+          <label for="a-al-resumen">Hora del resumen diario</label>
+          <input id="a-al-resumen" type="number" min="0" max="23" step="1">
+        </div>
+        <div class="campo">
+          <label for="a-fred">Clave de FRED <span class="insignia" id="a-fred-estado"></span></label>
+          <input id="a-fred" type="password" autocomplete="off" spellcheck="false" placeholder="Opcional: fechas de IPC, empleo, PIB y PCE">
+          <p class="nota">Gratis y de solo lectura: <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" rel="noopener">fred.stlouisfed.org</a> › My Account › API Keys.</p>
         </div>
 
         <h2>Cartera</h2>

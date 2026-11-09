@@ -29,6 +29,11 @@ The interface and the analyst's answers are in Spanish.
   follow with quantity 0) rather than on what you hold: suppliers, customers, competitors, sector and macro.
   The model can only pick symbols from the watchlist, and each idea states what would have to happen for it
   to work. "Stocks to buy" lists never reach the model: Python counts the tickers they cite as sentiment.
+- **Alerts**: while Radar is open, a background watcher checks every minute for your price rules, levels drawn
+  on the charts, news of importance 4 or 5 about your assets, strong daily moves and upcoming events
+  (earnings, Fed decisions, and US CPI, jobs, GDP and PCE with a free FRED key), and notifies you through
+  Windows, Telegram or ntfy. Anti-spam limits defer the less urgent ones to a daily digest. It makes no
+  model calls.
 - **Hit-rate scoreboard**: judges each signal (portfolio and ideas alike) once its horizon ends and reports
   accuracy with a Wilson interval, the Brier score against always saying 50 %, calibration by bands, the
   result against SPY or BTC over the same window, and the result net of a round-trip fee.

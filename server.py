@@ -6,6 +6,8 @@ Los datos se guardan en %LOCALAPPDATA%\\Radar (fuera de OneDrive, por la clave d
 import json
 import mimetypes
 import os
+import re
+import secrets
 import sys
 import threading
 import time
@@ -17,7 +19,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import agente
+import alertas
 import analista
+import calendario
+import canales
 import cuenta
 import datos
 import kraken
@@ -30,14 +35,21 @@ HOST, PORT = "127.0.0.1", int(os.environ.get("RADAR_PUERTO", 8770))
 STATIC = Path(__file__).resolve().parent / "static"
 HOSTS_VALIDOS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 MONEDAS = ("EUR", "USD", "GBP")
-SECRETOS = ("anthropic_key", "x_token", "kraken_key", "kraken_secret", "kraken_fut_key", "kraken_fut_secret")
+SECRETOS = ("anthropic_key", "x_token", "kraken_key", "kraken_secret", "kraken_fut_key", "kraken_fut_secret",
+            "telegram_token", "fred_key")
 LIMITES = [  # ajustes numéricos: (clave, tipo, mínimo, máximo, error)
     ("max_analisis", int, 1, 100, "Número de noticias no válido"),
     ("max_oportunidades", int, 1, 60, "Número de noticias para ideas no válido"),
     ("max_ideas", int, 1, 20, "Número de ideas no válido"),
     ("comision_acciones", float, 0.0, 5.0, "Comisión de acciones no válida"),
     ("comision_cripto", float, 0.0, 5.0, "Comisión de cripto no válida"),
+    ("alerta_mov_acciones", float, 0.5, 50.0, "Umbral de movimiento no válido"),
+    ("alerta_mov_cripto", float, 0.5, 50.0, "Umbral de movimiento no válido"),
+    ("alertas_por_hora", int, 1, 60, "Límite de alertas no válido"),
+    ("hora_resumen", int, 0, 23, "Hora del resumen no válida"),
 ]
+CASILLAS = ("auto_analizar", "resumen_auto", "alertas_windows", "alertas_telegram", "alertas_ntfy", "alertas_minimas")
+TEMA_NTFY = re.compile(r"[A-Za-z0-9_-]{6,64}")
 DIAS_IDEAS = 90  # las ideas con horizonte de meses tardan eso en resolverse
 
 
@@ -58,6 +70,8 @@ def ajustes_publicos():
         "tiene_x": bool(cfg["x_token"]),
         "tiene_kraken": bool(cfg["kraken_key"] and cfg["kraken_secret"]),
         "tiene_kraken_fut": bool(cfg["kraken_fut_key"] and cfg["kraken_fut_secret"]),
+        "tiene_telegram": bool(cfg["telegram_token"]),
+        "tiene_fred": bool(cfg["fred_key"]),
         "agente_listo": agente.listo(cfg),
         "cuenta": cuenta.estado(),
         "modelos": agente.MODELOS,
@@ -107,6 +121,44 @@ def ideas():
     }
 
 
+def crear_regla(cuerpo):
+    """Una regla de precio sobre algo que el vigilante sigue (cartera o watchlist), aún sin cumplir."""
+    simbolo = str(cuerpo.get("simbolo", "")).strip().upper()
+    condicion = cuerpo.get("condicion")
+    if simbolo not in {p["simbolo"] for p in datos.posiciones()}:
+        raise ErrorApi(400, "Solo se vigila lo que está en tu cartera o tu watchlist: añádelo antes allí")
+    if condicion not in ("sube_de", "baja_de"):
+        raise ErrorApi(400, "Condición no válida")
+    try:
+        nivel = float(cuerpo.get("nivel"))
+    except (TypeError, ValueError):
+        raise ErrorApi(400, "El nivel debe ser un número")
+    precio = mercado.cotizacion(simbolo)["precio"]
+    if precio and ((condicion == "sube_de" and precio >= nivel) or (condicion == "baja_de" and precio <= nivel)):
+        raise ErrorApi(400, f"{simbolo} ya cotiza a {precio:g}: la alerta saltaría al momento")
+    return {"id": datos.guardar_regla(simbolo, condicion, nivel, str(cuerpo.get("nota", "")).strip()[:200])}
+
+
+def crear_evento(cuerpo):
+    titulo = str(cuerpo.get("titulo", "")).strip()[:160]
+    try:
+        fecha = int(cuerpo.get("fecha"))
+    except (TypeError, ValueError):
+        raise ErrorApi(400, "Fecha no válida")
+    if not titulo:
+        raise ErrorApi(400, "Escribe qué pasa ese día")
+    simbolo = str(cuerpo.get("simbolo") or "").strip().upper()[:24]
+    return {"id": datos.guardar_evento(simbolo, titulo, fecha)}
+
+
+def probar_canal(cuerpo):
+    canal = cuerpo.get("canal")
+    if canal not in ("windows", "telegram", "ntfy"):
+        raise ErrorApi(400, "Canal no válido")
+    prueba = {"titulo": "Radar: alerta de prueba", "texto": "Si ves esto, este canal funciona.", "urgente": False}
+    return canales.enviar(prueba, datos.ajustes(), [canal])
+
+
 def guardar_posicion(cuerpo):
     simbolo = str(cuerpo.get("simbolo", "")).strip().upper()
     if not simbolo or len(simbolo) > 24:
@@ -150,9 +202,26 @@ def guardar_ajustes(cuerpo):
             cambios[clave] = cuerpo[clave]
     if cuerpo.get("moneda") in MONEDAS:
         cambios["moneda"] = cuerpo["moneda"]
-    for clave in ("auto_analizar", "resumen_auto"):
+    for clave in CASILLAS:
         if clave in cuerpo:
             cambios[clave] = bool(cuerpo[clave])
+    if cuerpo.get("alertas_niveles") in ("analista", "todos", "ninguno"):
+        cambios["alertas_niveles"] = cuerpo["alertas_niveles"]
+    if "telegram_chat" in cuerpo:
+        cambios["telegram_chat"] = str(cuerpo["telegram_chat"]).strip()[:40]
+    if "ntfy_servidor" in cuerpo:
+        servidor = str(cuerpo["ntfy_servidor"]).strip().rstrip("/") or "https://ntfy.sh"
+        if not servidor.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+            raise ErrorApi(400, "El servidor de ntfy debe empezar por https://")
+        cambios["ntfy_servidor"] = servidor
+    if "ntfy_tema" in cuerpo:
+        tema = str(cuerpo["ntfy_tema"]).strip()
+        if tema and not TEMA_NTFY.fullmatch(tema):
+            raise ErrorApi(400, "El tema de ntfy solo admite letras, números, - y _ (de 6 a 64)")
+        cambios["ntfy_tema"] = tema
+    # Quien adivine el tema de ntfy lee tus avisos: si no hay uno, se crea largo y aleatorio.
+    if cambios.get("alertas_ntfy") and not cambios.get("ntfy_tema", datos.ajustes()["ntfy_tema"]):
+        cambios["ntfy_tema"] = "radar-" + secrets.token_urlsafe(16).replace("_", "").replace("-", "")[:20]
     for clave, tipo, bajo, alto, error in LIMITES:
         if clave in cuerpo:
             try:
@@ -275,6 +344,14 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(ideas())
         elif ruta == "/api/ideas/estado":
             self._json(oportunidades.estado())
+        elif ruta == "/api/alertas":
+            self._json({"alertas": datos.alertas(int(time.time()) - 30 * 86400), "no_leidas": datos.no_leidas(),
+                        "reglas": datos.reglas_alerta()})
+        elif ruta == "/api/alertas/no_leidas":
+            self._json({"n": datos.no_leidas()})
+        elif ruta == "/api/calendario":  # aparte: la primera vez consulta varias webs y tarda
+            eventos, errores = calendario.proximos([p["simbolo"] for p in datos.posiciones()])
+            self._json({"eventos": eventos, "errores": errores})
         elif ruta == "/api/kraken":
             self._json(kraken.resumen(q.get("forzar") == "1"))
         elif ruta == "/api/cuenta":
@@ -310,6 +387,15 @@ class Manejador(BaseHTTPRequestHandler):
         elif url.path == "/api/ideas/analizar":
             error = oportunidades.analizar()
             self._json({"error": error} if error else {"ok": True})
+        elif url.path == "/api/alertas/reglas":
+            self._json(crear_regla(cuerpo))
+        elif url.path == "/api/alertas/leidas":
+            datos.marcar_leidas()
+            self._json({"ok": True})
+        elif url.path == "/api/alertas/probar":
+            self._json(probar_canal(cuerpo))
+        elif url.path == "/api/eventos":
+            self._json(crear_evento(cuerpo))
         elif url.path == "/api/watchlist/inicial":
             self._json({"anadidos": oportunidades.cargar_watchlist_inicial()})
         elif url.path == "/api/resumen":
@@ -327,6 +413,11 @@ class Manejador(BaseHTTPRequestHandler):
     def _delete(self):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if url.path in ("/api/alertas/reglas", "/api/eventos"):  # estas se borran por id
+            if not q.get("id", "").isdigit():
+                raise ErrorApi(400, "Falta el id")
+            (datos.borrar_regla if url.path == "/api/alertas/reglas" else datos.borrar_evento)(int(q["id"]))
+            return self._json({"ok": True})
         if not q.get("s"):
             raise ErrorApi(404, "No encontrado")
         if url.path == "/api/cartera":
@@ -366,6 +457,7 @@ def main():
         return
     url = f"http://{HOST}:{PORT}"
     print(f"Radar en {url}  (Ctrl+C para salir)")
+    alertas.Vigilante().start()  # las alertas solo funcionan mientras esta ventana siga abierta
     if "--sin-navegador" not in sys.argv:
         threading.Timer(0.7, webbrowser.open, args=(url,)).start()
     try:
