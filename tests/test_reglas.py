@@ -126,7 +126,7 @@ class CalibracionTest(unittest.TestCase):
         top = calibracion.top(pendientes, tipos, ahora)
         self.assertEqual([s["simbolo"] for s in top], ["NVDA", "XLE"])
         self.assertAlmostEqual(top[0]["puntos"], 0.6 * 15 * 1.3)
-        self.assertEqual(top[1]["historial"]["efectivas"], None)  # se muestra como «sin historial»
+        self.assertEqual(top[1]["historial"]["efectivas"], 0)  # se muestra como «sin historial»
 
 
 if __name__ == "__main__":
