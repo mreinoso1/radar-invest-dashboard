@@ -49,6 +49,7 @@ AJUSTES_DEFECTO = {
     "hora_resumen": 21,
     "alertas_niveles": "analista",  # analista | todos | ninguno: qué niveles dibujados vigilar
     "sec_contacto": "",         # nombre y correo que la SEC exige a quien consulta EDGAR
+    "simulacion": {},           # lo que el usuario cambia del simulador (riesgo, stop, cortos...)
     "gasto_usd": 0.0,
 }
 
@@ -188,6 +189,18 @@ CREATE TABLE IF NOT EXISTS form4 (
     simbolo TEXT NOT NULL,
     fecha TEXT NOT NULL,
     transacciones TEXT NOT NULL    -- JSON
+);
+-- Fase 4: funding histórico (se descarga una vez) y el último resultado de cada simulación.
+CREATE TABLE IF NOT EXISTS funding_historia (
+    moneda TEXT NOT NULL,
+    t INTEGER NOT NULL,            -- milisegundos, como los da Hyperliquid
+    tasa REAL NOT NULL,            -- tanto por uno por hora
+    PRIMARY KEY (moneda, t)
+);
+CREATE TABLE IF NOT EXISTS simulaciones (
+    clave TEXT PRIMARY KEY,
+    datos TEXT NOT NULL,
+    creado INTEGER NOT NULL
 );
 -- Tickers de la watchlist citados en listas tipo "acciones para comprar": sentimiento, no hechos.
 CREATE TABLE IF NOT EXISTS menciones (
@@ -609,6 +622,31 @@ def guardar_form4(acceso, simbolo, fecha, transacciones):
     with _lock, _con:
         _con.execute("INSERT OR REPLACE INTO form4 (acceso, simbolo, fecha, transacciones) VALUES (?, ?, ?, ?)",
                      (acceso, simbolo, fecha, json.dumps(transacciones, ensure_ascii=False)))
+
+
+def guardar_funding(moneda, filas):
+    """filas: lista de (t en ms, tasa por hora)."""
+    with _lock, _con:
+        _con.executemany("INSERT OR IGNORE INTO funding_historia (moneda, t, tasa) VALUES (?, ?, ?)",
+                         [(moneda, t, tasa) for t, tasa in filas])
+
+
+def funding(moneda):
+    with _lock:
+        return [(f["t"], f["tasa"]) for f in _con.execute(
+            "SELECT t, tasa FROM funding_historia WHERE moneda = ? ORDER BY t", (moneda,))]
+
+
+def guardar_simulacion(clave, valor):
+    with _lock, _con:
+        _con.execute("INSERT OR REPLACE INTO simulaciones (clave, datos, creado) VALUES (?, ?, ?)",
+                     (clave, json.dumps(valor, ensure_ascii=False), int(time.time())))
+
+
+def simulacion(clave):
+    with _lock:
+        fila = _con.execute("SELECT datos, creado FROM simulaciones WHERE clave = ?", (clave,)).fetchone()
+    return {**json.loads(fila["datos"]), "creado": fila["creado"]} if fila else None
 
 
 def sentimiento_social(desde):

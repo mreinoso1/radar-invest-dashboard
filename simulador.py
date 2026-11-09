@@ -35,6 +35,12 @@ CONFIG = {
 }
 
 
+def config_actual(ajustes):
+    """La configuración en uso: la de serie, las comisiones del marcador y lo que el usuario cambió."""
+    return {**CONFIG, "comision_acciones": ajustes["comision_acciones"], "comision_cripto": ajustes["comision_cripto"],
+            **{k: v for k, v in (ajustes.get("simulacion") or {}).items() if k in CONFIG}}
+
+
 def atr(velas, i, n=14):
     """ATR de las n sesiones anteriores a la vela i (sin incluirla: al abrir aún no se conoce)."""
     if i < n + 1:
@@ -130,7 +136,7 @@ def simular(senales, velas, cfg=None, indices=None):
             comision = cantidad * precio * (c["comision_cripto"] if cripto else c["comision_acciones"]) / 200
             efectivo += -sentido * cantidad * precio - comision
             fin = (s["t"] if not vigilar_hoy else dia * DIA) + marcador.PLAZOS.get(s["horizonte"], marcador.PLAZOS["días"])
-            abiertas.append({**{k2: s.get(k2) for k2 in ("id", "simbolo", "direccion", "origen", "tipo", "horizonte")},
+            abiertas.append({**{k2: s.get(k2) for k2 in ("id", "simbolo", "direccion", "origen", "tipo", "horizonte", "t")},
                              "sentido": sentido, "cantidad": cantidad, "entrada": precio, "dia_entrada": dia,
                              "stop": precio - sentido * distancia, "fin": fin, "vigilar_desde": dia if vigilar_hoy else dia + 1,
                              "costes": comision, "ultimo": precio, "cripto": cripto, "desliz": desliz})
@@ -191,7 +197,7 @@ def _cerrar(p, salida, dia, motivo, indices, dias_de):
         mov_indice = (b / a - 1) * 100 if a and b else None
     # Exceso: lo que ganó frente a lo que habría hecho su índice en esos días (un corto gana si cae más que él).
     exceso = rentab - p["sentido"] * mov_indice if mov_indice is not None else rentab
-    return {k: p[k] for k in ("id", "simbolo", "direccion", "origen", "tipo", "horizonte", "cantidad", "entrada",
+    return {k: p[k] for k in ("id", "simbolo", "direccion", "origen", "tipo", "horizonte", "t", "cantidad", "entrada",
                               "dia_entrada", "cripto")} | {
         "salida": salida, "dia_salida": dia, "motivo": motivo, "resultado": resultado, "costes": p["costes"],
         "rentabilidad": rentab, "mov_indice": mov_indice, "exceso": exceso}
