@@ -3,6 +3,7 @@ import json
 import os
 import socket
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -16,6 +17,7 @@ with socket.socket() as s:  # un puerto libre, fijado antes de importar el servi
 os.environ["RADAR_PUERTO"] = str(PUERTO)
 
 import cuenta  # noqa: E402
+import datos  # noqa: E402
 import mercado  # noqa: E402
 import server  # noqa: E402
 
@@ -56,6 +58,8 @@ class ApiTest(unittest.TestCase):
             mock.patch.object(mercado, "horas", return_value=(0, [])),
             mock.patch.object(mercado, "velas", side_effect=lambda s, i, corto=False: {
                 "nombre": s, "tipo_yahoo": "EQUITY", "moneda": "USD"}),
+            mock.patch.object(mercado, "cotizacion", side_effect=lambda s: {"simbolo": s, "precio": 100.0}),
+            mock.patch.object(server.calendario, "_automaticos", return_value=([], [])),
         ]
         for p in parches:
             p.start()
@@ -107,6 +111,57 @@ class ApiTest(unittest.TestCase):
         codigo, r = pedir("/api/watchlist/inicial", {})
         self.assertEqual(codigo, 200)
         self.assertEqual(r["anadidos"], len(server.oportunidades.WATCHLIST_INICIAL) - 2)
+
+    def borrar(self, ruta):
+        peticion = urllib.request.Request(f"http://127.0.0.1:{PUERTO}{ruta}", method="DELETE")
+        with urllib.request.urlopen(peticion, timeout=10) as r:
+            return r.status
+
+    def test_secretos_de_alertas_no_vuelven(self):
+        codigo, r = pedir("/api/ajustes", {"telegram_token": "123:SECRETO", "fred_key": "CLAVEFRED",
+                                           "telegram_chat": "42", "alertas_telegram": True})
+        self.assertEqual(codigo, 200)
+        texto = json.dumps(r)
+        self.assertNotIn("SECRETO", texto)
+        self.assertNotIn("CLAVEFRED", texto)
+        self.assertTrue(r["tiene_telegram"] and r["tiene_fred"])
+        self.assertEqual(r["telegram_chat"], "42")
+
+    def test_ntfy_crea_un_tema_aleatorio_y_valida(self):
+        _, r = pedir("/api/ajustes", {"alertas_ntfy": True})
+        self.assertRegex(r["ntfy_tema"], r"^radar-[A-Za-z0-9]{12,}$")
+        self.assertEqual(pedir("/api/ajustes", {"ntfy_tema": "con espacios"})[0], 400)
+        self.assertEqual(pedir("/api/ajustes", {"ntfy_servidor": "http://otro.example"})[0], 400)
+
+    def test_reglas_de_precio(self):
+        self.assertEqual(pedir("/api/alertas/reglas", {"simbolo": "TSLA", "condicion": "sube_de", "nivel": 1})[0], 400)
+        codigo, r = pedir("/api/alertas/reglas", {"simbolo": "NVDA", "condicion": "sube_de", "nivel": 90})
+        self.assertEqual(codigo, 400)  # cotiza a 100: saltaría al momento
+        self.assertIn("ya cotiza", r["error"])
+        codigo, r = pedir("/api/alertas/reglas", {"simbolo": "NVDA", "condicion": "baja_de", "nivel": 90})
+        self.assertEqual(codigo, 200)
+        self.assertEqual([g["nivel"] for g in pedir("/api/alertas")[1]["reglas"]], [90.0])
+        self.assertEqual(self.borrar(f"/api/alertas/reglas?id={r['id']}"), 200)
+        self.assertEqual(pedir("/api/alertas")[1]["reglas"], [])
+
+    def test_eventos_manuales_en_el_calendario(self):
+        fecha = int(time.time()) + 3 * 86400
+        _, r = pedir("/api/eventos", {"simbolo": "hype32196-usd", "titulo": "Desbloqueo de HYPE", "fecha": fecha})
+        _, cal = pedir("/api/calendario")
+        self.assertEqual([(e["titulo"], e["simbolo"]) for e in cal["eventos"]], [("Desbloqueo de HYPE", "HYPE32196-USD")])
+        self.borrar(f"/api/eventos?id={r['id']}")
+        self.assertEqual(pedir("/api/calendario")[1]["eventos"], [])
+        self.assertEqual(pedir("/api/eventos", {"titulo": "", "fecha": fecha})[0], 400)
+
+    def test_leidas_y_prueba_de_canal(self):
+        datos.guardar_alerta({"clave": "x", "tipo": "nivel", "simbolo": "NVDA", "titulo": "t", "texto": "",
+                              "urgente": True}, {"windows": "ok"})
+        self.assertEqual(pedir("/api/alertas/no_leidas")[1]["n"], 1)
+        pedir("/api/alertas/leidas", {})
+        self.assertEqual(pedir("/api/alertas/no_leidas")[1]["n"], 0)
+        with mock.patch.object(server.canales, "windows") as windows:
+            self.assertEqual(pedir("/api/alertas/probar", {"canal": "windows"})[1], {"windows": "ok"})
+        windows.assert_called_once()
 
     def test_sigue_rechazando_otras_webs(self):
         codigo, _ = pedir("/api/cartera", cabeceras={"Origin": "https://malicioso.example"})
