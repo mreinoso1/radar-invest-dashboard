@@ -23,6 +23,8 @@ class ReglasTest(unittest.TestCase):
                   {"id": 3, "simbolo": "AMD", "condicion": "sube_de", "nivel": 1, "nota": ""}]
         [a] = alertas.evaluar_reglas(reglas, {"NVDA": 179.5})  # AMD sin precio: no se evalúa
         self.assertEqual((a["clave"], a["regla_id"], a["urgente"]), ("regla:1", 1, True))
+        self.assertEqual(a["texto"], "Cotiza a 179,5. Tu nota: comprar")
+        self.assertEqual(alertas._p(1424.75), "1.424,75")
         self.assertIn("comprar", a["texto"])
 
     def test_que_niveles_se_vigilan(self):
@@ -65,6 +67,7 @@ class ReglasTest(unittest.TestCase):
         self.assertEqual(set(r), {"NVDA", "AMD"})  # BTC no llega al 8 % de las cripto
         self.assertFalse(r["NVDA"]["urgente"])     # al resumen
         self.assertTrue(r["AMD"]["urgente"])       # más del doble del umbral: inmediata
+        self.assertEqual(r["NVDA"]["titulo"], "NVDA sube un 6,0 % hoy")  # coma decimal, como en español
         # El sábado, con el mismo cierre anterior, la clave es la misma y no se repetirá.
         self.assertEqual(r["NVDA"]["clave"], alertas.evaluar_movimientos(cotiz[:1], 5, 8)[0]["clave"])
 

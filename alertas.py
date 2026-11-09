@@ -29,8 +29,9 @@ SIN_LIMITE = {"precio", "calendario"}  # las que pides tú o tienen fecha fija n
 TIPOS_DIBUJO = ("horizontal", "rect")
 
 
-def _p(v):
-    return f"{v:,.6g}".replace(",", " ")
+def _p(v, formato=",.6g"):
+    """Número a la española: 1.424,75. Se intercambian el punto y la coma del formato inglés."""
+    return format(v, formato).translate(str.maketrans(",.", ".,"))
 
 
 # ---------- Reglas ----------
@@ -108,7 +109,7 @@ def evaluar_movimientos(cotizaciones, umbral_acciones, umbral_cripto):
         fuerte = abs(v) >= 2 * umbral
         salida.append({"clave": f"mov{2 if fuerte else 1}:{s}:{c['cierre_previo']:.6g}", "tipo": "movimiento",
                        "simbolo": s, "urgente": fuerte,
-                       "titulo": f"{s} {'sube' if v > 0 else 'cae'} un {abs(v):.1f} % hoy",
+                       "titulo": f"{s} {'sube' if v > 0 else 'cae'} un {_p(abs(v), '.1f')} % hoy",
                        "texto": f"Cotiza a {_p(c['precio'])} frente a {_p(c['cierre_previo'])} del cierre anterior."})
     return salida
 
