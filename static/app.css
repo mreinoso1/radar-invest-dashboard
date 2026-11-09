@@ -316,6 +316,21 @@ main { grid-area: main; position: relative; min-width: 0; min-height: 0; overflo
 
 /* Kraken */
 .kraken { margin-top: 26px; }
+/* Simulación */
+.criterio { margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--linea); border-radius: 10px; background: var(--panel); }
+.criterio h2 small { font-weight: 400; color: var(--texto-3); text-transform: none; letter-spacing: 0; }
+.criterio-partes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 8px 0; }
+.criterio-parte b { font-size: 13px; color: var(--baja); }
+.criterio-parte.ok b { color: var(--sube); }
+.criterio-parte small { display: block; color: var(--texto-3); font-size: 11.5px; }
+.criterio-parte ul { margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; display: grid; gap: 2px; }
+.criterio-parte li span { color: var(--texto-3); font-family: var(--mono); }
+.sim-acciones { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.sim-grafica-caja { margin-bottom: 14px; border: 1px solid var(--linea); border-radius: 10px; overflow: hidden; }
+.sim-grafica { height: 320px; }
+.sim-leyenda { display: flex; gap: 16px; flex-wrap: wrap; padding: 8px 12px; font: 12px var(--mono); }
+.sim-leyenda i { display: inline-block; width: 12px; height: 3px; margin-right: 6px; vertical-align: middle; }
+
 /* Top 5 y datos cuantitativos */
 .top5 { margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--linea); border-radius: 10px; background: var(--panel); }
 .top5 h2 { margin-bottom: 8px; }

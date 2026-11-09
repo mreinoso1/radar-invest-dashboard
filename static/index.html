@@ -28,6 +28,7 @@
     <a href="#ideas" data-vista="ideas"><svg viewBox="0 0 24 24"><path d="M9 17.5h6M10 20.5h4M12 3.5a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2v1h5v-1c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3.5z"/></svg>Ideas</a>
     <a href="#social" data-vista="social"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H10l-4.5 3.5v-3.5H4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>Social</a>
     <a href="#aciertos" data-vista="aciertos"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="m12 12 7-7M16 5h3v3"/></svg>Aciertos</a>
+    <a href="#simulacion" data-vista="simulacion"><svg viewBox="0 0 24 24"><path d="M4 19.5h16M5 16l4.5-5 3.5 3 6-7.5"/><path d="M15 6.5h4v4"/></svg>Simulación</a>
     <a href="#alertas" data-vista="alertas"><svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/></svg>Alertas<span class="insignia-rail" id="insignia-alertas" hidden></span></a>
     <a href="#ajustes" data-vista="ajustes" class="abajo"><svg viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 12h3m4 0h9M4 17h11m4 0h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>Ajustes</a>
   </nav>
@@ -260,6 +261,48 @@
       </div>
     </section>
 
+    <!-- SIMULACIÓN -->
+    <section class="vista vista-texto" id="v-simulacion" hidden>
+      <div class="cabecera-vista">
+        <h1>Simulación</h1>
+        <div class="acciones">
+          <span class="estado" id="estado-simulacion" role="status"></span>
+          <div class="segmentos" id="sim-modo" role="group" aria-label="Qué simulación">
+            <button data-modo="paper" aria-pressed="true">Paper trading</button>
+            <button data-modo="backtest" aria-pressed="false">Backtest</button>
+          </div>
+        </div>
+      </div>
+      <p class="nota-vista" id="sim-explica"></p>
+      <div class="criterio" id="sim-criterio"></div>
+      <div class="sim-acciones" id="sim-acciones" hidden>
+        <label class="casilla"><input type="checkbox" id="sim-insiders"> Incluir insiders (la primera vez lee miles de Form 4 de la SEC: puede tardar media hora)</label>
+        <button class="boton primario" id="b-backtest">Lanzar backtest</button>
+      </div>
+      <div id="sim-avisos"></div>
+      <div class="sim-grafica-caja">
+        <div class="sim-leyenda" id="sim-leyenda"></div>
+        <div class="sim-grafica" id="sim-grafica"></div>
+      </div>
+      <div class="metricas" id="sim-metricas"></div>
+      <div class="ac-rejilla">
+        <div class="ac-bloque">
+          <h2>Por tipo de señal</h2>
+          <div class="tabla-envoltura"><table class="tabla" id="sim-tipos"></table></div>
+          <h2>Señales que no se abrieron</h2>
+          <ul class="datos-activo" id="sim-descartes"></ul>
+        </div>
+        <div class="ac-bloque">
+          <h2>Configuración</h2>
+          <ul class="datos-activo" id="sim-config"></ul>
+          <p class="nota">Se cambia en <a href="#ajustes">Ajustes</a>. Cualquier cambio crea una versión nueva: el paper trading vuelve a contar desde 0 y hay que repetir el backtest.</p>
+        </div>
+      </div>
+      <h2 class="ac-titulo">Operaciones</h2>
+      <div class="tabla-envoltura"><table class="tabla" id="sim-operaciones"></table></div>
+      <p class="legal">Dinero ficticio. El backtest usa tu cartera y watchlist de hoy, empresas que sabemos que sobrevivieron (sesgo de supervivencia): un buen resultado es una pista, no una prueba. Ninguna simulación garantiza resultados futuros y nada de esto es asesoramiento financiero.</p>
+    </section>
+
     <!-- ALERTAS -->
     <section class="vista vista-texto" id="v-alertas" hidden>
       <div class="cabecera-vista">
@@ -443,6 +486,11 @@
           <input id="a-sec" type="text" autocomplete="off" spellcheck="false" placeholder="Nombre correo@ejemplo.com">
           <p class="nota">La SEC exige que cada programa que lee sus datos se identifique con un nombre y un correo. Radar lo usa solo para eso, para leer los Form 4 de los directivos, y no lo guarda en el proyecto. Sin él, los datos de insiders salen como «s/d».</p>
         </div>
+
+        <h2>Simulación</h2>
+        <p class="nota">Cambiar cualquier valor crea una versión nueva de la estrategia: el paper trading vuelve a contar desde 0 para la Fase 5 y hay que repetir el backtest. Así no se puede ir retocando hasta que apruebe.</p>
+        <div class="rejilla-campos" id="a-sim"></div>
+        <label class="casilla"><input id="a-sim-cortos" type="checkbox"> Permitir cortos (apostar a la baja)</label>
 
         <h2>Cartera</h2>
         <div class="campo">
