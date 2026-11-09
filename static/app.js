@@ -1507,7 +1507,7 @@ function pintarEstrategia(r) {
     + metrica("Volatilidad", pp(md.volatilidad), "anual, con los días en liquidez")
     + metrica("Operaciones", m.operaciones, `rotación ${pp(m.rotacion_anual, 0)} al año`)
     + metrica("En liquidez", pp(m.liquidez_pct), `invertido de media ${pp(m.invertido_medio)}`)
-    + metrica("Costes", pp(m.costes, 2), "del capital inicial, en total");
+    + metrica("Costes", `${pp(m.costes, 2)} al año`, "del capital, en comisiones y deslizamiento");
 
   const refs = m.referencias, anios = Object.keys(md.anios);
   $("tr-anios").innerHTML = `<thead><tr><th>Año</th><th>trend_v1</th><th>BTC</th><th>Pesos iguales</th>${res ? "<th>Reservadas</th>" : ""}</tr></thead><tbody>`
@@ -1519,7 +1519,7 @@ function pintarEstrategia(r) {
     + filas.map(([n, x]) => `<tr><td>${esc(n)}</td><td>${numero(x.sharpe, 2)}</td><td>${pp(x.caida_maxima)}</td><td class="${claseVar(x.cagr)}">${pct(x.cagr)}</td><td>${x.operaciones ?? "—"}</td></tr>`).join("") + "</tbody>";
   const monedas = [...Object.entries(m.por_moneda).map(([k, x]) => [k, x, m.correlacion_btc[k]]),
     ...(res ? Object.entries(res.por_moneda).map(([k, x]) => [`${k} (reservada)`, x, res.correlacion_btc[k]]) : [])];
-  $("tr-monedas").innerHTML = `<thead><tr><th>Moneda</th><th>Días con posición</th><th>Operaciones</th><th>Aportó</th><th>Costes</th><th>Correlación con BTC</th></tr></thead><tbody>`
+  $("tr-monedas").innerHTML = `<thead><tr><th>Moneda</th><th>Días con posición</th><th>Operaciones</th><th>Aportó (sobre el capital inicial)</th><th>Costes (suma, % del capital)</th><th>Correlación con BTC</th></tr></thead><tbody>`
     + monedas.map(([k, x, c]) => `<tr><td>${esc(k)}</td><td>${x.dias}</td><td>${x.operaciones}</td><td class="${claseVar(x.resultado)}">${pct(x.resultado)}</td><td>${pp(x.costes, 2)}</td><td>${numero(c, 2)}</td></tr>`).join("") + "</tbody>";
   $("tr-regimenes").innerHTML = Object.entries(m.regimenes).map(([k, n]) => `<li><span>${esc(k)}</span><span>${n}</span></li>`).join("");
 

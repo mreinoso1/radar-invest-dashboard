@@ -114,6 +114,8 @@ class CostesTest(unittest.TestCase):
         self.assertTrue(operadas)
         for f in operadas:
             self.assertAlmostEqual(f["coste"], 0.0036 * abs(f["peso_final"] - f["peso_actual"]), places=5)
+        anios = len(r["rendimientos"]) / 365  # el informe da el coste medio al año, en % del capital
+        self.assertAlmostEqual(r["costes"], sum(f["coste"] for f in operadas) / anios * 100)
         sin_costes = trend.simular({"A": paseo(1), "B": paseo(2)}, ["A", "B"], btc_tranquilo(), fin=FIN, coste=0)
         self.assertGreater(sin_costes["curva"][-1][1], r["curva"][-1][1])
 

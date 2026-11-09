@@ -281,6 +281,7 @@ def simular(velas, monedas, btc, p=P, coste=None, inicio=INICIO, fin=FIN, _desfa
     sbtc = Serie(btc, p["media"], (p["vol_regimen"], p["ventana_mediana"]))
     estados = dict.fromkeys(monedas, False)
     registro, regimenes, operaciones = [], {}, {m: 0 for m in monedas}
+    pagado = dict.fromkeys(monedas, 0.0)  # costes en tanto por uno del capital de cada momento
     rotacion = [0.0]
 
     def decidir(d):
@@ -303,6 +304,7 @@ def simular(velas, monedas, btc, p=P, coste=None, inicio=INICIO, fin=FIN, _desfa
             delta, c = cambios.get(m, (0.0, 0.0))
             operaciones[m] += bool(delta)
             rotacion[0] += abs(delta)
+            pagado[m] += c
             registro.append({"dia": fecha_de(d), "moneda": m, "regimen": plan["regimen"],
                              "senal": "larga" if plan["senales"][m] else "liquidez",
                              "peso_actual": round(actual.get(m, 0.0), 6), "peso_objetivo": round(plan["objetivo"][m], 6),
@@ -314,12 +316,13 @@ def simular(velas, monedas, btc, p=P, coste=None, inicio=INICIO, fin=FIN, _desfa
     return {
         "rendimientos": rend, "curva": curva, "registro": registro, "regimenes": regimenes,
         "operaciones": sum(operaciones.values()), "rotacion_anual": rotacion[0] / anios * 100 if anios else None,
-        "costes": sum(cartera.costes.values()) * 100,
+        # Coste medio al año en % del capital: sumar dinero cuando el capital se multiplica no se entiende.
+        "costes": sum(pagado.values()) / anios * 100 if anios else None,
         "liquidez_pct": sum(x < 1e-9 for x in invertido) / len(invertido) * 100 if invertido else None,
         "invertido_medio": statistics.fmean(invertido) * 100 if invertido else None,
         "pesos_finales": {m: round(w, 4) for m, w in cartera.pesos().items()},
         "por_moneda": {m: {"dias": dias[m], "operaciones": operaciones[m],
-                           "resultado": cartera.resultado.get(m, 0.0) * 100, "costes": cartera.costes.get(m, 0.0) * 100}
+                           "resultado": cartera.resultado.get(m, 0.0) * 100, "costes": pagado[m] * 100}
                        for m in monedas},
     }
 
