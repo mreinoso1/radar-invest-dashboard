@@ -1,0 +1,130 @@
+{
+  "id": "trend_v1",
+  "version": 1,
+  "registrado": "2026-11-09",
+  "estado": "preregistrado: ningún backtest de esta estrategia se ha ejecutado todavía",
+  "nota": "Este archivo se congela con el tag git prereg-trend-v1. El backtest se niega a ejecutarse si su contenido no coincide byte a byte con el del commit etiquetado. Cualquier cambio es otra estrategia (trend_v2) con su propio preregistro.",
+
+  "hipotesis": "El momentum de medio plazo en cripto líquidas persiste porque los inversores reaccionan despacio; cuando el precio está bajo su media, el riesgo de caída pesa más.",
+
+  "datos": {
+    "fuente": "Yahoo Finance, velas diarias (día UTC), endpoint v8/finance/chart, pares frente a USD",
+    "precio_senal": "cierre diario",
+    "precio_ejecucion": "apertura diaria",
+    "inicio": "2018-01-01",
+    "fin": "2026-11-08",
+    "nota_fin": "Fecha fija: el último día completo antes del preregistro. Volver a ejecutar con más datos es otra prueba y se apunta como tal.",
+    "huecos": "Si falta la vela de un día, esa moneda rinde 0 ese día y no se puede operar hasta que vuelva a haber datos."
+  },
+
+  "universo": {
+    "monedas": ["BTC", "ETH", "SOL", "XRP", "ADA", "LINK", "LTC", "DOT", "AVAX", "DOGE", "ATOM", "UNI"],
+    "tickers_yahoo": {
+      "BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD", "XRP": "XRP-USD", "ADA": "ADA-USD",
+      "LINK": "LINK-USD", "LTC": "LTC-USD", "DOT": "DOT-USD", "AVAX": "AVAX-USD", "DOGE": "DOGE-USD",
+      "ATOM": "ATOM-USD", "UNI": "UNI7083-USD"
+    },
+    "principales": ["BTC", "ETH", "SOL", "XRP", "ADA", "ATOM", "AVAX", "DOGE"],
+    "reservadas": ["DOT", "LINK", "LTC", "UNI"],
+    "como_se_eligieron_las_reservadas": "Sorteo antes de mirar ningún dato de precio: random.Random('trend_v1').sample(sorted(monedas que Radar nunca ha usado en un backtest), 4) con Python 3.11. Esas 8 eran ADA, ATOM, AVAX, DOGE, DOT, LINK, LTC y UNI; BTC, ETH, SOL y XRP ya se usaron en el backtest de la Fase 4 y quedan entre las principales.",
+    "entrada_tardia": "Una moneda sin historia desde el inicio entra en cuanto tiene 100 cierres diarios.",
+    "regla": "No se añaden ni se quitan monedas después de ver resultados."
+  },
+
+  "capas": {
+    "1_regimen": {
+      "activo_de_referencia": "BTC",
+      "bajista": "cierre de BTC < su media móvil simple de 100 días",
+      "volatilidad_extrema": "volatilidad de 30 días de BTC > 2 × la mediana de esa misma volatilidad en los últimos 365 días",
+      "alcista": "cierre de BTC >= su media de 100 días, esa media es mayor que hace 20 días y no hay volatilidad extrema",
+      "lateral": "cierre de BTC >= su media de 100 días, la media no es mayor que hace 20 días y no hay volatilidad extrema. Solo informativo: se opera igual que en alcista.",
+      "efecto": "En régimen bajista o de volatilidad extrema el peso objetivo de cada moneda se limita a su peso actual: no se abren posiciones ni se aumentan. Reducir y cerrar sí está permitido.",
+      "volatilidad": "desviación típica de los rendimientos simples diarios × raíz de 365"
+    },
+    "2_senal": {
+      "regla": "Posición larga en una moneda si su cierre > su media móvil simple de 100 días (incluido el cierre de ese día). Si no, liquidez.",
+      "sin_ml": true
+    },
+    "3_filtro_de_ruido": {
+      "dos_cierres": "La señal de una moneda solo cambia de estado (de liquidez a larga o al revés) si el nuevo estado se cumple en los dos últimos cierres (sábado y domingo). Si no coinciden, se mantiene el estado anterior.",
+      "cambio_minimo": "Una moneda solo se opera si |peso objetivo − peso actual| > 25 % del peso actual. Abrir desde 0 y cerrar hasta 0 siempre cumplen."
+    },
+    "4_tamano": {
+      "peso_objetivo": "min(20 %, 25 % / volatilidad anualizada de 60 días de la moneda)",
+      "suma": "Si la suma de pesos objetivo pasa del 100 %, se escalan todos en la misma proporción hasta sumar 100 %.",
+      "liquidez": "Lo que no se invierte rinde 0.",
+      "sin_apalancamiento": true,
+      "sin_cortos": true
+    },
+    "5_eventos": "Solo lectura y fuera del backtest: junto a cada posición se muestran las noticias y alertas de importancia >= 4 de esa moneda. No cambian la señal.",
+    "6_registro": "Cada decisión semanal guarda, por moneda: régimen, señal, peso actual, peso objetivo, peso tras filtros, si se operó y su coste."
+  },
+
+  "ejecucion": {
+    "rebalanceo": "semanal: decisión con el cierre del domingo (día UTC), ejecución en la apertura del lunes",
+    "look_ahead": "Todo lo que decide la operación usa cierres hasta el domingo incluido. Nada del lunes ni posterior.",
+    "peso_actual": "El peso de cada moneda a la apertura del lunes, después de moverse con el precio desde la última operación.",
+    "valoracion": "La cartera se valora a diario al cierre. El lunes rinde con los pesos viejos del cierre del domingo a la apertura, y con los nuevos de la apertura al cierre."
+  },
+
+  "costes": {
+    "por_lado": "0,36 % del importe operado (0,26 % de comisión + 0,10 % de deslizamiento)",
+    "aplicacion": "En cada cambio de peso: coste = 0,36 % × |cambio de peso| × capital",
+    "sensibilidad": "Se repite todo con 0,52 % por lado. Se informa; no decide."
+  },
+
+  "medidas": {
+    "rendimientos": "rendimientos diarios netos de costes, de 2018-01-01 a 2026-11-08, incluidos los días en liquidez (rinden 0)",
+    "sharpe": "media / desviación típica de los rendimientos diarios × raíz de 365, sin tipo libre de riesgo",
+    "bootstrap": "estacionario (Politis y Romano, 1994): bloques de longitud geométrica con media de 20 días, 5.000 remuestreos, semilla 7, intervalo del 95 % por percentiles del Sharpe",
+    "drawdown_maximo": "mayor caída desde un máximo de la curva de capital, con cierres diarios",
+    "anios": "rentabilidad neta de cada año natural; los 4 últimos años completos son 2022, 2023, 2024 y 2025"
+  },
+
+  "criterio_de_exito": {
+    "todos_a_la_vez": [
+      "1. Sharpe neto de costes >= 0,8, y el límite inferior de su intervalo bootstrap del 95 % > 0. Se compara con cero, no con BTC.",
+      "2. Drawdown máximo <= 35 %.",
+      "3. Rentabilidad neta anual positiva en al menos 3 de 2022, 2023, 2024 y 2025.",
+      "4. La estrategia aplicada solo a las reservadas (DOT, LINK, LTC y UNI, con el régimen de BTC) cumple también 1, 2 y 3."
+    ],
+    "orden": "Primero las principales. Las reservadas se ejecutan una sola vez, al final, aunque las principales no pasen, para que el resultado quede apuntado.",
+    "con_que_coste": "El criterio se evalúa con 0,36 % por lado.",
+    "veredicto": {
+      "pasa": "Se cumplen los 4 puntos.",
+      "no_pasa": "En las principales, el límite superior del intervalo bootstrap del Sharpe < 0,8: claramente por debajo del objetivo.",
+      "no_demostrado": "Cualquier otro caso en que falle algún punto."
+    },
+    "si_no_pasa": "Se registra el veredicto tal cual. No se ajusta ningún parámetro de trend_v1. Una variante es trend_v2, con su propio preregistro, y suma uno al contador de pruebas."
+  },
+
+  "solo_informativo": {
+    "referencias": [
+      "BTC comprar y mantener, mismo periodo: Sharpe, drawdown y rentabilidad.",
+      "Universo principal a pesos iguales: compra a partes iguales las monedas disponibles y vuelve a pesos iguales el primer lunes de cada mes, con los mismos costes."
+    ],
+    "robustez": "La misma estrategia con medias de 50 y de 150 días. Solo se informa; no sirve para elegir otra media.",
+    "avisos_obligatorios": [
+      "Sesgo de supervivencia: el universo son monedas que existen y son grandes hoy; las que desaparecieron no están.",
+      "Las monedas del universo están muy correlacionadas con BTC: 8 o 12 monedas no son 8 o 12 apuestas independientes."
+    ]
+  },
+
+  "prohibido_en_esta_version": [
+    "ML sobre patrones de velas o cualquier otro",
+    "optimizar parámetros con el resultado del backtest",
+    "apalancamiento",
+    "cortos",
+    "envío de órdenes reales o uso de claves con permiso de operar"
+  ],
+
+  "fase_c_si_pasa": "Paper trading semanal (cierre del domingo, ejecución simulada en la apertura del lunes con costes), en una tabla propia, comparado con BTC, con alerta de escritorio semanal. Sin dinero real ni claves.",
+
+  "contador_de_pruebas": {
+    "este_intento": 3,
+    "anteriores": [
+      "1. Fase 4: reglas de volumen, funding e insiders sobre 32 activos. No pasó.",
+      "2. Desglose del backtest de la Fase 4 por tipo de activo (volumen en cripto +5,6 % por operación). Exploratorio, sin preregistro: no cuenta como prueba de nada."
+    ]
+  }
+}

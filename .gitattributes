@@ -1,0 +1,2 @@
+# Preregistros: se guardan byte a byte, sin convertir finales de línea, para que su hash no cambie.
+estrategias/*.json -text
