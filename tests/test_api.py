@@ -57,7 +57,7 @@ class ApiTest(unittest.TestCase):
             mock.patch.object(mercado, "cambio", return_value=1.0),
             mock.patch.object(mercado, "horas", return_value=(0, [])),
             mock.patch.object(mercado, "velas", side_effect=lambda s, i, corto=False: {
-                "nombre": s, "tipo_yahoo": "EQUITY", "moneda": "USD"}),
+                "nombre": s, "tipo_yahoo": "EQUITY", "moneda": "USD", "velas": []}),
             mock.patch.object(mercado, "cotizacion", side_effect=lambda s: {"simbolo": s, "precio": 100.0}),
             mock.patch.object(server.calendario, "_automaticos", return_value=([], [])),
         ]
@@ -181,6 +181,21 @@ class ApiTest(unittest.TestCase):
             codigo, r = pedir("/api/cuant?s=NVDA")
         self.assertEqual(codigo, 200)
         self.assertIn("2,0 veces", r["lineas"][0])
+
+    def test_ajustes_de_la_simulacion_acotados(self):
+        _, r = pedir("/api/ajustes", {"simulacion": {"riesgo_pct": 50, "cortos": False, "inventado": 1}})
+        self.assertEqual(r["simulacion"], {"riesgo_pct": 5.0, "cortos": False})
+        self.assertEqual(pedir("/api/ajustes", {"simulacion": {"stop_atr": "mucho"}})[0], 400)
+
+    def test_simulacion_y_criterio(self):
+        mercado._cache.clear()
+        codigo, r = pedir("/api/paper")
+        self.assertEqual((codigo, r["operaciones"], r["criterio"]["pasa"]), (200, [], False))
+        codigo, r = pedir("/api/backtest")
+        self.assertEqual((codigo, r["resultado"], r["estado"]["activo"]), (200, None, False))
+        codigo, r = pedir("/api/criterio")
+        self.assertEqual((codigo, r["desbloqueada"]), (200, False))
+        self.assertEqual(r["partes"][0]["nota"], "Aún no se ha lanzado.")
 
     def test_sigue_rechazando_otras_webs(self):
         codigo, _ = pedir("/api/cartera", cabeceras={"Origin": "https://malicioso.example"})
