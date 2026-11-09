@@ -85,6 +85,30 @@ class FundingTest(unittest.TestCase):
         self.assertEqual(pedidas, [0, 500, 503])
 
 
+class LimiteDeRitmoTest(unittest.TestCase):
+    def test_reintenta_cuando_pide_ir_mas_despacio(self):
+        error = backtest.urllib.error.HTTPError("u", 429, "Too Many Requests", {}, None)
+        respuesta = mock.MagicMock()
+        respuesta.__enter__.return_value.read.return_value = b"[]"
+        with mock.patch.object(backtest.urllib.request, "urlopen", side_effect=[error, error, respuesta]), \
+                mock.patch.object(backtest.time, "sleep") as dormir:
+            self.assertEqual(backtest._hyperliquid({}), [])
+        self.assertEqual([c.args[0] for c in dormir.call_args_list], [2, 4])
+
+    def test_un_fallo_a_medias_no_pierde_lo_descargado_y_se_avisa(self):
+        base.limpiar()
+        base.posicion("BTC-USD", 1)
+        datos.guardar_funding("BTC", [(0, 0.00005)])
+        velas = velas_al_azar()
+        with mock.patch.object(backtest.mercado, "velas", return_value={"velas": velas}), \
+                mock.patch.object(backtest, "descargar_funding",
+                                  side_effect=backtest.urllib.error.URLError("demasiadas peticiones")):
+            backtest._correr(False)
+        r = datos.simulacion("backtest")
+        self.assertEqual(r["con_funding"], ["BTC-USD"])
+        self.assertIn("quedó incompleto", r["avisos"][0])
+
+
 class EjecutarYCriterioTest(unittest.TestCase):
     def setUp(self):
         base.limpiar()

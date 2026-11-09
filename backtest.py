@@ -17,6 +17,7 @@ import json
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
@@ -130,15 +131,26 @@ def ejecutar(velas, indices, funding_por_simbolo, insiders_por_simbolo, cfg, inc
     }
 
 
+PAUSA_HL = 1.0       # segundos entre páginas: Hyperliquid limita el ritmo
+REINTENTOS_HL = 5
+
+
 def _hyperliquid(cuerpo):
     peticion = urllib.request.Request("https://api.hyperliquid.xyz/info", data=json.dumps(cuerpo).encode(),
                                       headers={**cuant.UA, "Content-Type": "application/json"})
-    with urllib.request.urlopen(peticion, timeout=20) as r:
-        return json.loads(r.read())
+    for intento in range(REINTENTOS_HL):
+        try:
+            with urllib.request.urlopen(peticion, timeout=20) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or intento == REINTENTOS_HL - 1:
+                raise
+            time.sleep(2 ** (intento + 1))  # nos pide ir más despacio: 2, 4, 8, 16 segundos
 
 
 def descargar_funding(moneda):
-    """Completa el historial guardado de una moneda: 500 registros horarios por petición."""
+    """Completa el historial guardado de una moneda: 500 registros horarios por petición. Lo descargado se
+    guarda página a página, así un fallo a medias no pierde lo anterior."""
     guardado = datos.funding(moneda)
     inicio = guardado[-1][0] + 1 if guardado else 0
     while True:
@@ -149,7 +161,7 @@ def descargar_funding(moneda):
         inicio = filas[-1]["time"] + 1
         if len(filas) < 500:
             break
-        time.sleep(0.2)
+        time.sleep(PAUSA_HL)
     return datos.funding(moneda)
 
 
@@ -172,12 +184,18 @@ def _correr(con_insiders):
             _avanza(hecho=n)
         cripto = [s for s in velas if marcador.es_cripto(s)]
         _avanza(fase="Descargando el funding de Hyperliquid", hecho=0, total=len(cripto))
-        funding = {}
+        funding, avisos = {}, []
         for n, s in enumerate(cripto, 1):
+            moneda = marcador.ticker_de(s)
             try:
-                funding[s] = funding_diario(descargar_funding(marcador.ticker_de(s)))
-            except Exception:
-                pass  # una moneda que no está en Hyperliquid simplemente no tiene esta regla
+                filas = descargar_funding(moneda)
+            except (urllib.error.URLError, TimeoutError, ValueError) as e:
+                # Nunca en silencio: se usa lo que ya estuviera guardado y se avisa de que está incompleto.
+                filas = datos.funding(moneda)
+                avisos.append(f"El funding de {moneda} quedó incompleto ({getattr(e, 'reason', e)}); "
+                              f"se usan {len(filas)} horas guardadas. Vuelve a lanzar el backtest para completarlo.")
+            if filas:  # una moneda que no cotiza en Hyperliquid no tiene historial: esa regla no se le aplica
+                funding[s] = funding_diario(filas)
             _avanza(hecho=n)
         insiders = {}
         if con_insiders:
@@ -192,6 +210,8 @@ def _correr(con_insiders):
         _avanza(fase="Simulando", hecho=0, total=0)
         resultado = ejecutar(velas, indices, funding, insiders, cfg, incluidas)
         resultado["universo"] = sorted(velas)
+        resultado["avisos"] = avisos
+        resultado["con_funding"] = sorted(funding)
         datos.guardar_simulacion("backtest", resultado)
         _avanza(activo=False, fase="Listo", fin=time.time())
     except Exception as e:
