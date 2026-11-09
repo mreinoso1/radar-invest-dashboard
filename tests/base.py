@@ -17,7 +17,8 @@ atexit.register(shutil.rmtree, CARPETA, ignore_errors=True)
 import datos  # noqa: E402
 
 TABLAS = ("menciones", "ideas", "ideas_items", "analisis", "chat", "resumenes", "dibujos", "items", "posiciones",
-          "reglas_alerta", "alertas", "eventos", "estado_alertas", "cuant_historia", "senales_reglas", "form4")
+          "reglas_alerta", "alertas", "eventos", "estado_alertas", "cuant_historia", "senales_reglas", "form4",
+          "funding_historia", "simulaciones")
 
 
 def limpiar():

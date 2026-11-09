@@ -42,6 +42,17 @@ The interface and the analyst's answers are in Spanish.
   insider buying, extreme funding, volume with momentum) generate signals without the model. Each signal
   type is weighted by how often it has beaten the index, shrunk towards zero with little data, and a daily
   top 5 ranks pending signals by confidence and that measured weight.
+- **Paper trading and backtest**: a pure simulator trades signals on daily candles with risk-based sizing
+  (0.5 % of equity at a 2 ATR stop), fees, slippage, short borrow costs, a daily loss limit and no leverage,
+  always assuming the worse case when daily bars cannot tell. Paper trading runs every real signal forward;
+  the backtest rebuilds the rules that can be reproduced from past data (volume, Hyperliquid funding, EDGAR
+  insider filings by filing date) without look-ahead. Results are compared with buying and holding SPY and
+  BTC over the same period. Mind survivorship bias: the backtest universe is today's watchlist.
+- **A locked gate for live trading**: a later phase that could trade for real stays blocked in code until the
+  backtest passes over the full period and the last two years (at least 100 trades, beating the index net of
+  costs, and a day-block bootstrap interval of the mean excess per trade above zero, Bonferroni-corrected),
+  and paper trading of the same rules confirms it with at least 30 real trades. Any change to the strategy
+  creates a new fingerprint and restarts the count.
 - **Hit-rate scoreboard**: judges each signal (portfolio and ideas alike) once its horizon ends and reports
   accuracy with a Wilson interval, the Brier score against always saying 50 %, calibration by bands, the
   result against SPY or BTC over the same window, and the result net of a round-trip fee.

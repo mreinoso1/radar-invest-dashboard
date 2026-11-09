@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 import agente
 import alertas
 import analista
+import backtest
 import calendario
 import calibracion
 import canales
@@ -32,6 +33,8 @@ import marcador
 import mercado
 import noticias
 import oportunidades
+import paper
+import simulador
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("RADAR_PUERTO", 8770))
 STATIC = Path(__file__).resolve().parent / "static"
@@ -51,6 +54,12 @@ LIMITES = [  # ajustes numéricos: (clave, tipo, mínimo, máximo, error)
     ("alertas_por_hora", int, 1, 60, "Límite de alertas no válido"),
     ("hora_resumen", int, 0, 23, "Hora del resumen no válida"),
 ]
+LIMITES_SIMULACION = {  # clave: (tipo, mínimo, máximo)
+    "capital": (float, 100.0, 10_000_000.0), "riesgo_pct": (float, 0.05, 5.0), "stop_atr": (float, 0.5, 10.0),
+    "max_posiciones": (int, 1, 50), "max_peso_pct": (float, 1.0, 100.0), "perdida_diaria_pct": (float, 0.5, 20.0),
+    "desliz_acciones_bps": (float, 0.0, 200.0), "desliz_cripto_bps": (float, 0.0, 200.0),
+    "prestamo_acciones_pct": (float, 0.0, 50.0), "prestamo_cripto_pct": (float, 0.0, 100.0),
+}
 CASILLAS = ("auto_analizar", "resumen_auto", "alertas_windows", "alertas_telegram", "alertas_ntfy", "alertas_minimas")
 TEMA_NTFY = re.compile(r"[A-Za-z0-9_-]{6,64}")
 DIAS_IDEAS = 90  # las ideas con horizonte de meses tardan eso en resolverse
@@ -76,6 +85,7 @@ def ajustes_publicos():
         "tiene_telegram": bool(cfg["telegram_token"]),
         "tiene_fred": bool(cfg["fred_key"]),
         "tiene_sec": bool(cfg["sec_contacto"]),
+        "simulacion_efectiva": simulador.config_actual(cfg),
         "agente_listo": agente.listo(cfg),
         "cuenta": cuenta.estado(),
         "modelos": agente.MODELOS,
@@ -228,6 +238,18 @@ def guardar_ajustes(cuerpo):
     # Quien adivine el tema de ntfy lee tus avisos: si no hay uno, se crea largo y aleatorio.
     if cambios.get("alertas_ntfy") and not cambios.get("ntfy_tema", datos.ajustes()["ntfy_tema"]):
         cambios["ntfy_tema"] = "radar-" + secrets.token_urlsafe(16).replace("_", "").replace("-", "")[:20]
+    if isinstance(cuerpo.get("simulacion"), dict):
+        simulacion = {}
+        for clave, valor in cuerpo["simulacion"].items():
+            if clave == "cortos":
+                simulacion[clave] = bool(valor)
+            elif clave in LIMITES_SIMULACION:
+                tipo, bajo, alto = LIMITES_SIMULACION[clave]
+                try:
+                    simulacion[clave] = max(bajo, min(alto, tipo(valor)))
+                except (TypeError, ValueError):
+                    raise ErrorApi(400, f"Valor no válido para {clave}")
+        cambios["simulacion"] = simulacion
     for clave, tipo, bajo, alto, error in LIMITES:
         if clave in cuerpo:
             try:
@@ -359,6 +381,12 @@ class Manejador(BaseHTTPRequestHandler):
         elif ruta == "/api/top":
             r = marcador.calcular("todas")
             self._json({"top": calibracion.top(r["senales"], r["por_tipo"], time.time()), "tipos": r["por_tipo"]})
+        elif ruta == "/api/paper":
+            self._json(mercado._cacheado(("paper",), 300, paper.calcular))
+        elif ruta == "/api/backtest":
+            self._json({"estado": backtest.estado(), "resultado": datos.simulacion("backtest")})
+        elif ruta == "/api/criterio":
+            self._json(paper.estado_fase5())
         elif ruta == "/api/alertas/no_leidas":
             self._json({"n": datos.no_leidas()})
         elif ruta == "/api/calendario":  # aparte: la primera vez consulta varias webs y tarda
@@ -398,6 +426,9 @@ class Manejador(BaseHTTPRequestHandler):
             self._json({"error": error} if error else {"ok": True})
         elif url.path == "/api/ideas/analizar":
             error = oportunidades.analizar()
+            self._json({"error": error} if error else {"ok": True})
+        elif url.path == "/api/backtest":
+            error = backtest.lanzar(bool(cuerpo.get("insiders")))
             self._json({"error": error} if error else {"ok": True})
         elif url.path == "/api/alertas/reglas":
             self._json(crear_regla(cuerpo))

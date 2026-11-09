@@ -97,16 +97,13 @@ def resumir(transacciones):
             "ultimas": sorted(compras + ventas, key=lambda t: t["fecha"], reverse=True)[:5]}
 
 
-def resumen(simbolo, dias=90):
-    """Insiders de los últimos `dias`. None si no es una empresa de EE. UU. con CIK en la SEC."""
-    cik = _cik(simbolo)
-    if not cik:
-        return None
-    desde = (date.today() - timedelta(days=dias)).isoformat()
+def _descargar(simbolo, cik, desde, limite=None, avance=None):
+    """Los Form 4 presentados desde `desde`, descargando solo los que aún no estaban guardados."""
     guardados = datos.form4_guardados(simbolo, desde)
     sub = mercado._cacheado(("sec_sub", cik), 6 * 3600, lambda: json.loads(_pedir(
         f"https://data.sec.gov/submissions/CIK{cik:010d}.json")))
-    for acceso, fecha, documento in [f for f in formularios(sub, desde) if f[0] not in guardados][:MAX_FORMULARIOS]:
+    nuevos = [f for f in formularios(sub, desde) if f[0] not in guardados][:limite]
+    for n, (acceso, fecha, documento) in enumerate(nuevos, 1):
         # primaryDocument apunta a la versión con estilo ("xslF345X06/…"); el XML en bruto está sin esa carpeta.
         url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acceso.replace('-', '')}/{documento.split('/')[-1]}"
         try:
@@ -114,6 +111,28 @@ def resumen(simbolo, dias=90):
         except ET.ParseError:
             transacciones = []
         datos.guardar_form4(acceso, simbolo, fecha, transacciones)
-        guardados[acceso] = {"transacciones": transacciones}
+        guardados[acceso] = {"fecha": fecha, "transacciones": transacciones}
+        if avance:
+            avance(n, len(nuevos))
+    return guardados
+
+
+def resumen(simbolo, dias=90):
+    """Insiders de los últimos `dias`. None si no es una empresa de EE. UU. con CIK en la SEC."""
+    cik = _cik(simbolo)
+    if not cik:
+        return None
+    guardados = _descargar(simbolo, cik, (date.today() - timedelta(days=dias)).isoformat(), MAX_FORMULARIOS)
     # La lista de un CIK incluye los Form 4 que esa empresa presenta como accionista de otras: no son suyos.
     return resumir([t for f in guardados.values() for t in f["transacciones"] if t.get("emisor") == cik])
+
+
+def historial(simbolo, desde, avance=None):
+    """[(fecha de presentación, transacción)] desde `desde`. En un backtest cuenta la fecha de presentación, no
+    la de la compra: hasta entonces nadie de fuera podía saberla."""
+    cik = _cik(simbolo)
+    if not cik:
+        return []
+    guardados = _descargar(simbolo, cik, desde, avance=avance)
+    return sorted(((f["fecha"], t) for f in guardados.values() for t in f["transacciones"] if t.get("emisor") == cik),
+                  key=lambda par: par[0])

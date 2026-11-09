@@ -95,7 +95,7 @@ function estado(tipo, texto, error = false) {
 /* ---------- Navegación ---------- */
 
 function irA(vista) {
-  if (!["mercado", "cartera", "noticias", "ideas", "social", "aciertos", "alertas", "ajustes"].includes(vista)) vista = "mercado";
+  if (!["mercado", "cartera", "noticias", "ideas", "social", "aciertos", "simulacion", "alertas", "ajustes"].includes(vista)) vista = "mercado";
   S.vista = vista;
   document.querySelectorAll(".vista-texto").forEach((v) => { v.hidden = v.id !== `v-${vista}`; });
   $("v-mercado").classList.toggle("en-reposo", vista !== "mercado");
@@ -108,6 +108,7 @@ function irA(vista) {
   if (vista === "social") { pintarFeed("social"); cargarSentimiento(); }
   if (vista === "aciertos") cargarAciertos();
   if (vista === "alertas") { cargarAlertas(); cargarCalendario(); }
+  if (vista === "simulacion") cargarSimulacion();
   if (vista === "ajustes") pintarAjustes();
 }
 window.addEventListener("hashchange", () => irA(location.hash.slice(1)));
@@ -1274,6 +1275,164 @@ $("v-ideas").addEventListener("click", (e) => {
   if (b) abrirActivo(b.dataset.abrir);
 });
 
+/* ---------- Simulación ---------- */
+
+S.sim = { modo: "paper", datos: {}, grafica: null, vigilando: false };
+const SIM_EXPLICA = {
+  paper: "Todas las señales reales de Radar (cartera, ideas y reglas), operadas con dinero ficticio desde que existen: entran a su precio, con tamaño por riesgo, stop a 2 ATR, comisiones y deslizamiento. Es la única prueba libre de sesgos, pero tarda en acumular operaciones.",
+  backtest: "Las reglas que se pueden reproducir con datos pasados (volumen, funding y, si lo eliges, insiders), simuladas sin mirar el futuro: la señal del día d solo usa datos hasta su cierre y entra a la apertura del día siguiente. Las señales del modelo no entran: Claude sabe lo que pasó después de las noticias antiguas.",
+};
+const SIM_CONFIG = {
+  capital: ["Capital inicial ($)", 0], riesgo_pct: ["Riesgo por operación (%)", 2], stop_atr: ["Stop (veces el ATR)", 1],
+  max_posiciones: ["Posiciones a la vez", 0], max_peso_pct: ["Peso máximo por posición (%)", 0],
+  perdida_diaria_pct: ["Pérdida diaria que bloquea el día siguiente (%)", 1], desliz_acciones_bps: ["Deslizamiento en acciones (pb)", 0],
+  desliz_cripto_bps: ["Deslizamiento en cripto (pb)", 0], comision_acciones: ["Comisión de ida y vuelta, acciones (%)", 2],
+  comision_cripto: ["Comisión de ida y vuelta, cripto (%)", 2], prestamo_acciones_pct: ["Préstamo de un corto, acciones (% anual)", 1],
+  prestamo_cripto_pct: ["Préstamo de un corto, cripto (% anual)", 1],
+};
+
+async function cargarSimulacion() {
+  document.querySelectorAll("#sim-modo button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.modo === S.sim.modo));
+  $("sim-explica").textContent = SIM_EXPLICA[S.sim.modo];
+  $("sim-acciones").hidden = S.sim.modo !== "backtest";
+  estado("simulacion", S.sim.modo === "paper" ? "Simulando…" : "");
+  api("/api/criterio").then(pintarCriterio).catch((e) => { $("sim-criterio").innerHTML = `<p class="nota error">${esc(e.message)}</p>`; });
+  try {
+    if (S.sim.modo === "paper") {
+      pintarSimulacion(await api("/api/paper"));
+      estado("simulacion", "");
+    } else {
+      const b = await api("/api/backtest");
+      if (b.estado.activo) vigilarBacktest();
+      else estado("simulacion", b.estado.error || "", Boolean(b.estado.error));
+      if (b.resultado) pintarSimulacion(b.resultado);
+      else vaciarSimulacion("Aún no has lanzado ningún backtest. Pulsa «Lanzar backtest»: tarda unos minutos la primera vez.");
+    }
+  } catch (e) {
+    estado("simulacion", e.message, true);
+  }
+}
+
+function vaciarSimulacion(texto) {
+  if (S.sim.grafica) { S.sim.grafica.remove(); S.sim.grafica = null; }
+  $("sim-grafica").innerHTML = `<p class="vacio">${esc(texto)}</p>`;
+  for (const id of ["sim-leyenda", "sim-metricas", "sim-tipos", "sim-descartes", "sim-config", "sim-operaciones", "sim-avisos"]) $(id).innerHTML = "";
+}
+
+function valorPunto(p) {
+  const v = p.valor;
+  if (Array.isArray(v) && v.length === 2 && p.nombre.startsWith("Rentabilidad")) return `${pct(v[0])} frente a ${pct(v[1])}`;
+  if (Array.isArray(v)) return `de ${pct(v[0])} a ${pct(v[1])}`;
+  if (typeof v === "number" && !Number.isInteger(v)) return pct(v);
+  return v ?? "—";
+}
+
+function pintarCriterio(c) {
+  const parte = (p) => `<div class="criterio-parte ${p.pasa ? "ok" : ""}"><b>${p.pasa ? "✓" : "✗"} ${esc(p.nombre)}</b>
+    ${p.nota ? `<small>${esc(p.nota)}</small>` : ""}
+    <ul>${(p.puntos || []).map((x) => `<li class="${x.ok ? "sube" : "baja"}">${x.ok ? "✓" : "✗"} ${esc(x.nombre)} <span>${esc(valorPunto(x))}</span></li>`).join("")}</ul></div>`;
+  $("sim-criterio").innerHTML = `<h2>${c.desbloqueada ? "Fase 5 desbloqueada" : "Fase 5 bloqueada"} <small>· versión ${esc(c.huella)} · reglas: ${esc(c.incluidas.join(", ") || "ninguna aún")}</small></h2>
+    <div class="criterio-partes">${c.partes.map(parte).join("")}</div>
+    <p class="nota">Tienen que cumplirse las tres partes. El paper trading solo cuenta señales de esas reglas creadas desde ${new Date(c.desde * 1000).toLocaleDateString("es-ES")}, cuando empezó esta versión.</p>`;
+}
+
+function pintarSimulacion(r) {
+  const capital = r.config.capital, m = r.metricas;
+  // Gráfica: capital de la estrategia frente a comprar y mantener SPY y BTC con el mismo dinero.
+  if (S.sim.grafica) S.sim.grafica.remove();
+  $("sim-grafica").innerHTML = "";
+  const g = LightweightCharts.createChart($("sim-grafica"), {
+    autoSize: true, layout: { background: { color: COL.fondo }, textColor: COL.texto, fontFamily: "IBM Plex Mono, Consolas, monospace", fontSize: 11 },
+    grid: { vertLines: { color: COL.rejilla }, horzLines: { color: COL.rejilla } },
+    rightPriceScale: { borderColor: COL.eje, mode: 1 }, timeScale: { borderColor: COL.eje }, handleScroll: false, handleScale: false,
+    localization: { priceFormatter: (v) => `${numero(v, 0)} $` },
+  });
+  S.sim.grafica = g;
+  const lineas = [["Estrategia", COL.acento, r.curva], ["SPY", "#6aa8ff", r.indices?.SPY || []], ["BTC", "#c58bf2", r.indices?.["BTC-USD"] || []]];
+  for (const [, color, curva] of lineas) {
+    if (curva.length) g.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false })
+      .setData(curva.map(([d, v]) => ({ time: d * 86400, value: v })));
+  }
+  g.timeScale().fitContent();
+  const final = (curva) => (curva.length ? (curva[curva.length - 1][1] / curva[0][1] - 1) * 100 : null);
+  $("sim-leyenda").innerHTML = lineas.map(([n, color, curva]) => `<span><i style="background:${color}"></i>${n} <b class="${claseVar(final(curva))}">${pct(final(curva))}</b></span>`).join("")
+    + '<span class="nota">Escala logarítmica</span>';
+
+  const metrica = (t, v, nota, clase = "") => `<div class="metrica"><span>${t}</span><b class="${clase}">${v}</b><small>${nota}</small></div>`;
+  $("sim-metricas").innerHTML = !m.rentabilidad && m.rentabilidad !== 0 ? "" :
+    metrica("Rentabilidad neta", pct(m.rentabilidad), `${dinero(capital, "$")} → ${dinero(m.capital_final, "$")}`, claseVar(m.rentabilidad))
+    + metrica("Al año (CAGR)", pct(m.cagr), `volatilidad ${pctSimple(m.volatilidad, 1)}`)
+    + metrica("Sharpe", numero(m.sharpe, 2), "sin tipo libre de riesgo")
+    + metrica("Caída máxima", pct(m.max_caida), "desde el máximo anterior", "baja")
+    + metrica("Operaciones", m.operaciones, `${pctSimple(m.aciertos)} ganadoras · profit factor ${numero(m.profit_factor, 2)}`)
+    + metrica("Exceso medio", pct(m.exceso_medio), "por operación frente a su índice", claseVar(m.exceso_medio))
+    + metrica("Costes", dinero(m.costes, "$"), "comisiones, deslizamiento y préstamo");
+
+  const tipos = r.por_regla || Object.values(r.operaciones.reduce((acc, o) => {
+    const t = acc[o.tipo] ||= { tipo: o.tipo, operaciones: 0, suma: 0, ganadas: 0 };
+    t.operaciones += 1; t.suma += o.exceso; t.ganadas += o.resultado > 0;
+    return acc;
+  }, {})).map((t) => ({ tipo: t.tipo, operaciones: t.operaciones, exceso_medio: t.suma / t.operaciones, aciertos: t.ganadas / t.operaciones * 100 }));
+  $("sim-tipos").innerHTML = `<thead><tr><th>Tipo</th><th>Operaciones</th><th>Ganadoras</th><th>Exceso medio</th></tr></thead>
+    <tbody>${tipos.length ? tipos.map((t) => `<tr><td>${esc(t.tipo)}</td><td>${t.operaciones}</td><td>${pctSimple(t.aciertos)}</td><td class="${claseVar(t.exceso_medio)}">${pct(t.exceso_medio)}</td></tr>`).join("")
+      : '<tr><td colspan="4" class="vacio-mini">Aún no hay operaciones cerradas.</td></tr>'}</tbody>`;
+  const descartes = Object.entries(r.descartes || {});
+  $("sim-descartes").innerHTML = descartes.length ? descartes.map(([k, n]) => `<li><span>${esc(k)}</span><span>${n}</span></li>`).join("") : "<li><span>Ninguna</span><span></span></li>";
+  $("sim-config").innerHTML = Object.entries(SIM_CONFIG).map(([k, [t, d]]) => `<li><span>${esc(t)}</span><span>${numero(r.config[k], d)}</span></li>`).join("")
+    + `<li><span>Cortos</span><span>${r.config.cortos ? "sí" : "no"}</span></li>`;
+  $("sim-avisos").innerHTML = (r.avisos || []).map((a) => `<p class="nota error">${esc(a)}</p>`).join("")
+    + (r.universo ? `<p class="nota">Universo: ${r.universo.length} activos de tu cartera y watchlist · ${r.senales} señales${r.con_funding?.length ? ` · funding de ${esc(r.con_funding.join(", "))}` : ""}${r.creado ? ` · calculado ${hace(r.creado)}` : ""}</p>` : "");
+
+  const dia = (d) => new Date(d * 86400000).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  const filas = [...(r.abiertas || []).map((o) => ({ ...o, abierta: true })), ...[...r.operaciones].sort((a, b) => b.dia_salida - a.dia_salida)].slice(0, 150);
+  $("sim-operaciones").innerHTML = `<thead><tr><th>Activo</th><th>Tipo</th><th>Lado</th><th>Entrada</th><th>Salida</th><th>Motivo</th><th>Resultado ($)</th><th>Rentabilidad</th><th>Vs índice</th></tr></thead>
+    <tbody>${filas.length ? filas.map((o) => `<tr>
+      <td><button class="activo" data-abrir="${esc(o.simbolo)}"><b>${esc(o.simbolo)}</b></button></td><td>${esc(o.tipo)}</td>
+      <td class="${o.direccion}">${o.direccion === "sube" ? "Largo" : "Corto"}</td>
+      <td>${dia(o.dia_entrada)} · ${precioTxt(o.entrada)}</td>
+      <td>${o.abierta ? `abierta · ${precioTxt(o.ultimo)}` : `${dia(o.dia_salida)} · ${precioTxt(o.salida)}`}</td>
+      <td>${o.abierta ? `stop ${precioTxt(o.stop)}` : esc(o.motivo)}</td>
+      <td class="${claseVar(o.resultado)}">${numero(o.resultado)}</td>
+      <td class="${claseVar(o.rentabilidad)}">${o.abierta ? "—" : pct(o.rentabilidad)}</td>
+      <td class="${claseVar(o.exceso)}">${o.abierta ? "—" : pct(o.exceso)}</td></tr>`).join("")
+      : '<tr><td colspan="9" class="vacio-mini">Aún no hay operaciones.</td></tr>'}</tbody>`;
+}
+
+async function vigilarBacktest() {
+  if (S.sim.vigilando) return;
+  S.sim.vigilando = true;
+  $("b-backtest").disabled = true;
+  for (;;) {
+    const b = await api("/api/backtest").catch(() => null);
+    if (!b || !b.estado.activo) {
+      estado("simulacion", b?.estado.error || "Backtest terminado", Boolean(b?.estado.error));
+      break;
+    }
+    const e = b.estado;
+    estado("simulacion", `${e.fase}${e.total ? ` · ${e.hecho} de ${e.total}` : ""}`);
+    await new Promise((ok) => setTimeout(ok, 3000));
+  }
+  S.sim.vigilando = false;
+  $("b-backtest").disabled = false;
+  if (S.vista === "simulacion" && S.sim.modo === "backtest") cargarSimulacion();
+}
+
+$("sim-modo").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-modo]");
+  if (!b || b.dataset.modo === S.sim.modo) return;
+  S.sim.modo = b.dataset.modo;
+  cargarSimulacion();
+});
+$("b-backtest").addEventListener("click", async () => {
+  const r = await enviar("/api/backtest", { insiders: $("sim-insiders").checked }).catch((e) => ({ error: e.message }));
+  if (r.error) { estado("simulacion", r.error, true); return; }
+  vigilarBacktest();
+});
+$("v-simulacion").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-abrir]");
+  if (b) abrirActivo(b.dataset.abrir);
+});
+
 /* ---------- Alertas ---------- */
 
 const TIPOS_ALERTA = { precio: "Precio", nivel: "Nivel", noticia: "Noticia", movimiento: "Movimiento", calendario: "Calendario", resumen: "Resumen" };
@@ -1445,6 +1604,11 @@ function pintarAjustes() {
   $("a-fred").value = "";
   $("a-fred").placeholder = c.tiene_fred ? "Guardada. Escribe otra para cambiarla" : "Opcional: fechas de IPC, empleo, PIB y PCE";
   $("a-fred-estado").textContent = c.tiene_fred ? "● Configurada" : "";
+  // Simulación: las comisiones ya se ajustan arriba (son las del marcador); aquí, el resto.
+  const sim = c.simulacion_efectiva;
+  $("a-sim").innerHTML = Object.entries(SIM_CONFIG).filter(([k]) => !k.startsWith("comision"))
+    .map(([k, [t]]) => `<div class="campo"><label for="a-sim-${k}">${esc(t)}</label><input id="a-sim-${k}" data-sim="${k}" type="number" step="any" min="0" value="${sim[k]}"></div>`).join("");
+  $("a-sim-cortos").checked = sim.cortos;
   $("a-sec").value = "";
   $("a-sec").placeholder = c.tiene_sec ? "Guardado. Escribe otro para cambiarlo" : "Nombre correo@ejemplo.com";
   $("a-sec-estado").textContent = c.tiene_sec ? "● Configurado" : "";
@@ -1511,6 +1675,13 @@ $("form-ajustes").addEventListener("submit", async (e) => {
   if ($("a-tg-token").value.trim()) cuerpo.telegram_token = $("a-tg-token").value.trim();
   if ($("a-fred").value.trim()) cuerpo.fred_key = $("a-fred").value.trim();
   if ($("a-sec").value.trim()) cuerpo.sec_contacto = $("a-sec").value.trim();
+  // Solo se guardan los valores que difieren de los actuales: así un guardado sin cambios no crea una versión nueva.
+  const sim = { ...S.cfg.simulacion };
+  document.querySelectorAll("[data-sim]").forEach((el) => {
+    if (Number(el.value) !== S.cfg.simulacion_efectiva[el.dataset.sim]) sim[el.dataset.sim] = Number(el.value);
+  });
+  if ($("a-sim-cortos").checked !== S.cfg.simulacion_efectiva.cortos) sim.cortos = $("a-sim-cortos").checked;
+  cuerpo.simulacion = sim;
   if ($("a-clave").value.trim()) cuerpo.anthropic_key = $("a-clave").value;
   if ($("a-x").value.trim()) cuerpo.x_token = $("a-x").value;
   for (const [pub, priv, cPub, cPriv] of [["a-kraken-key", "a-kraken-secret", "kraken_key", "kraken_secret"],
