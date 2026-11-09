@@ -29,6 +29,10 @@ AJUSTES_DEFECTO = {
     "auto_analizar": False,
     "resumen_auto": True,
     "max_analisis": 30,
+    "max_oportunidades": 16,   # noticias por pasada del modo oportunidades
+    "max_ideas": 5,            # activos distintos que puede proponer en cada pasada
+    "comision_acciones": 0.10,  # % de ida y vuelta que el marcador descuenta a cada señal
+    "comision_cripto": 0.52,    # dos veces la comisión taker de Kraken
     "gasto_usd": 0.0,
 }
 
@@ -86,6 +90,36 @@ CREATE TABLE IF NOT EXISTS chat (
     creado INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_simbolo ON chat (simbolo, id);
+-- Modo oportunidades: qué noticias ya revisó (con o sin ideas) y qué propuso.
+CREATE TABLE IF NOT EXISTS ideas_items (
+    item_id TEXT PRIMARY KEY REFERENCES items (id) ON DELETE CASCADE,
+    modelo TEXT NOT NULL,          -- "listas" si solo se extrajeron menciones, sin modelo
+    titulo TEXT,                   -- titular traducido, si pasó por el modelo
+    creado INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id TEXT NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+    simbolo TEXT NOT NULL,
+    relacion TEXT NOT NULL,        -- proveedor | cliente | competidor | sector | macro | directo
+    prob_subida INTEGER NOT NULL,
+    confianza INTEGER NOT NULL,
+    horizonte TEXT NOT NULL,
+    mecanismo TEXT NOT NULL,
+    invalidacion TEXT NOT NULL,
+    que_tendria_que_pasar TEXT NOT NULL,
+    precio REAL,                   -- la cotización que tenía delante: el marcador parte de ella
+    modelo TEXT NOT NULL,
+    creado INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ideas_creado ON ideas (creado DESC);
+-- Tickers de la watchlist citados en listas tipo "acciones para comprar": sentimiento, no hechos.
+CREATE TABLE IF NOT EXISTS menciones (
+    item_id TEXT NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+    simbolo TEXT NOT NULL,
+    fecha INTEGER NOT NULL,
+    PRIMARY KEY (item_id, simbolo)
+);
 """
 
 _lock = threading.RLock()
@@ -169,8 +203,10 @@ def guardar_items(items):
                 {**it, "simbolos_json": json.dumps(sorted(it["simbolos"]))},
             )
         limite = int(time.time()) - 14 * 86400
+        # Lo analizado y lo que dio ideas se queda: el marcador lo juzga cuando acabe su plazo.
         _con.execute(
-            "DELETE FROM items WHERE fecha < ? AND id NOT IN (SELECT item_id FROM analisis)", (limite,)
+            """DELETE FROM items WHERE fecha < ? AND id NOT IN (SELECT item_id FROM analisis)
+               AND id NOT IN (SELECT item_id FROM ideas)""", (limite,)
         )
     return nuevos
 
@@ -289,6 +325,69 @@ def senales():
                WHERE a.relevante = 1 ORDER BY a.creado DESC""",
         ).fetchall()
     return [dict(f, impactos=json.loads(f["impactos"])) for f in filas]
+
+
+def pendientes_ideas(limite, desde):
+    """Noticias que el modo oportunidades aún no ha revisado, las más recientes primero."""
+    with _lock:
+        filas = _con.execute(
+            """SELECT i.* FROM items i LEFT JOIN ideas_items v ON v.item_id = i.id
+               WHERE i.tipo = 'noticia' AND v.item_id IS NULL AND i.evento IS NULL AND i.fecha >= ?
+               ORDER BY i.fecha DESC LIMIT ?""",
+            (desde, limite),
+        ).fetchall()
+    return [dict(f, simbolos=json.loads(f["simbolos"])) for f in filas]
+
+
+def guardar_ideas(item_id, ideas, modelo, titulo=None):
+    """Marca la noticia como revisada y guarda sus ideas (puede no haber ninguna)."""
+    ahora = int(time.time())
+    with _lock, _con:
+        _con.execute("INSERT OR REPLACE INTO ideas_items (item_id, modelo, titulo, creado) VALUES (?, ?, ?, ?)",
+                     (item_id, modelo, titulo, ahora))
+        for i in ideas:
+            _con.execute(
+                """INSERT INTO ideas (item_id, simbolo, relacion, prob_subida, confianza, horizonte, mecanismo,
+                                      invalidacion, que_tendria_que_pasar, precio, modelo, creado)
+                   VALUES (:item_id, :simbolo, :relacion, :prob_subida, :confianza, :horizonte, :mecanismo,
+                           :invalidacion, :que_tendria_que_pasar, :precio, :modelo, :creado)""",
+                {**i, "item_id": item_id, "modelo": modelo, "creado": ahora},
+            )
+
+
+def ideas(desde=0):
+    """Ideas con la noticia que las originó, las más recientes primero."""
+    with _lock:
+        filas = _con.execute(
+            """SELECT d.*, COALESCE(v.titulo, a.titulo, i.titulo) AS titulo, i.titulo AS titulo_original, i.url,
+                      i.fuente, i.fecha
+               FROM ideas d JOIN items i ON i.id = d.item_id LEFT JOIN ideas_items v ON v.item_id = d.item_id
+                    LEFT JOIN analisis a ON a.item_id = d.item_id
+               WHERE d.creado >= ? ORDER BY d.creado DESC, d.id""",
+            (desde,),
+        ).fetchall()
+    return [dict(f) for f in filas]
+
+
+def guardar_menciones(pares):
+    """pares: lista de (item_id, simbolo, fecha)."""
+    with _lock, _con:
+        _con.executemany("INSERT OR IGNORE INTO menciones (item_id, simbolo, fecha) VALUES (?, ?, ?)", pares)
+
+
+def menciones(desde):
+    """Cuántas listas citan cada activo desde `desde`, con sus titulares."""
+    with _lock:
+        filas = _con.execute(
+            """SELECT m.simbolo, i.titulo, i.fuente, i.url, m.fecha FROM menciones m JOIN items i ON i.id = m.item_id
+               WHERE m.fecha >= ? ORDER BY m.fecha DESC""",
+            (desde,),
+        ).fetchall()
+    salida = {}
+    for f in filas:
+        salida.setdefault(f["simbolo"], []).append({"titulo": f["titulo"], "fuente": f["fuente"], "url": f["url"],
+                                                    "fecha": f["fecha"]})
+    return salida
 
 
 def sentimiento_social(desde):

@@ -95,7 +95,7 @@ function estado(tipo, texto, error = false) {
 /* ---------- Navegación ---------- */
 
 function irA(vista) {
-  if (!["mercado", "cartera", "noticias", "social", "aciertos", "ajustes"].includes(vista)) vista = "mercado";
+  if (!["mercado", "cartera", "noticias", "ideas", "social", "aciertos", "ajustes"].includes(vista)) vista = "mercado";
   S.vista = vista;
   document.querySelectorAll(".vista-texto").forEach((v) => { v.hidden = v.id !== `v-${vista}`; });
   $("v-mercado").classList.toggle("en-reposo", vista !== "mercado");
@@ -104,6 +104,7 @@ function irA(vista) {
   });
   if (vista === "cartera") { pintarCartera(); cargarKraken(); }
   if (vista === "noticias") pintarFeed("noticia");
+  if (vista === "ideas") cargarIdeas();
   if (vista === "social") { pintarFeed("social"); cargarSentimiento(); }
   if (vista === "aciertos") cargarAciertos();
   if (vista === "ajustes") pintarAjustes();
@@ -792,8 +793,12 @@ async function refrescarCartera() {
   if (S.vista === "cartera") pintarCartera();
 }
 
+// Las posiciones con cantidad 0 son la watchlist: se siguen sin tenerlas y son el universo de las ideas.
+const tenidas = () => S.cartera.filas.filter((f) => f.cantidad > 0);
+const seguidas = () => S.cartera.filas.filter((f) => !f.cantidad);
+
 function pintarCartera() {
-  const c = S.cartera, m = c.moneda, hay = c.filas.length > 0;
+  const c = S.cartera, m = c.moneda, hay = tenidas().length > 0;
   const pctGan = c.coste ? c.ganancia / c.coste * 100 : null;
   const previo = c.valor - c.dia;
   $("cartera-aviso").textContent = c.avisos?.join(" · ") || "Precios de Yahoo Finance, pueden llevar retraso.";
@@ -803,8 +808,9 @@ function pintarCartera() {
     <div class="metrica"><span>Hoy</span><b class="${claseVar(c.dia)}">${flecha(c.dia)} ${dinero(c.dia, m)}</b><small class="${claseVar(c.dia)}">${pct(previo ? c.dia / previo * 100 : null)}</small></div>` : "";
   $("cartera-vacia").hidden = hay;
   $("tabla-cartera").hidden = !hay;
+  pintarWatchlist();
   if (!hay) return;
-  const ordenadas = [...c.filas].sort((a, b) => b.valor - a.valor);
+  const ordenadas = tenidas().sort((a, b) => b.valor - a.valor);
   $("tabla-cartera").innerHTML = `<thead><tr><th>Activo</th><th>Cantidad</th><th>Precio medio</th><th>Precio</th><th>Hoy</th><th>5 días</th><th>Valor (${esc(m)})</th><th>Ganancia (${esc(m)})</th><th>Peso</th><th><span hidden>Acciones</span></th></tr></thead>
   <tbody>${ordenadas.map((f) => {
     const ganPct = f.coste && f.ganancia !== null ? f.ganancia / f.coste * 100 : null;
@@ -824,7 +830,25 @@ function pintarCartera() {
   }).join("")}</tbody>`;
 }
 
-$("tabla-cartera").addEventListener("click", async (e) => {
+function pintarWatchlist() {
+  const filas = seguidas().sort((a, b) => a.simbolo.localeCompare(b.simbolo));
+  $("watchlist-vacia").hidden = filas.length > 0;
+  $("tabla-watchlist").hidden = !filas.length;
+  if (!filas.length) return;
+  $("tabla-watchlist").innerHTML = `<thead><tr><th>Activo</th><th>Precio</th><th>Hoy</th><th>5 días</th><th><span hidden>Acciones</span></th></tr></thead>
+  <tbody>${filas.map((f) => {
+    const s = esc(f.simbolo);
+    return `<tr>
+      <td><button class="activo" data-abrir="${s}"><b>${s}</b><small>${esc(f.nombre)}</small></button></td>
+      <td>${precioTxt(f.precio)} ${esc(f.moneda)}</td>
+      <td class="${claseVar(f.var_dia)}">${flecha(f.var_dia)} ${pct(f.var_dia)}</td>
+      <td class="${claseVar(f.var_5d)}">${flecha(f.var_5d)} ${pct(f.var_5d)}</td>
+      <td><span class="acciones-fila"><button class="enlace" data-editar="${s}">Comprar</button><button class="enlace" data-borrar="${s}">Quitar</button></span></td>
+    </tr>`;
+  }).join("")}</tbody>`;
+}
+
+async function alClicTabla(e) {
   const t = e.target.closest("[data-abrir],[data-editar],[data-borrar]");
   if (!t) return;
   if (t.dataset.abrir) abrirActivo(t.dataset.abrir);
@@ -833,6 +857,23 @@ $("tabla-cartera").addEventListener("click", async (e) => {
     await api(`/api/cartera?s=${encodeURIComponent(t.dataset.borrar)}`, { method: "DELETE" });
     await refrescarCartera();
     pintarCartera();
+  }
+}
+$("tabla-cartera").addEventListener("click", alClicTabla);
+$("tabla-watchlist").addEventListener("click", alClicTabla);
+
+$("b-watchlist-inicial").addEventListener("click", async () => {
+  $("b-watchlist-inicial").disabled = true;
+  estado("watchlist", "Añadiendo…");
+  try {
+    const r = await enviar("/api/watchlist/inicial");
+    estado("watchlist", r.anadidos ? `${r.anadidos} añadidos` : "Ya estaban todos");
+    await refrescarCartera();
+    pintarCartera();
+  } catch (err) {
+    estado("watchlist", err.message, true);
+  } finally {
+    $("b-watchlist-inicial").disabled = false;
   }
 });
 
@@ -1109,6 +1150,108 @@ $("sentimiento").addEventListener("click", (e) => {
   if (b) { S.filtro.social.activo = b.dataset.s; pintarFeed("social"); }
 });
 
+/* ---------- Ideas nuevas ---------- */
+
+const RELACIONES = { directo: "Directo", proveedor: "Proveedor", cliente: "Cliente", competidor: "Competidor", sector: "Sector", macro: "Macro" };
+S.ideas = null;
+S.juicioIdeas = null;  // cómo va cada idea según el marcador; llega aparte porque consulta precios
+
+async function cargarIdeas() {
+  try {
+    S.ideas = await api("/api/ideas");
+  } catch (e) {
+    estado("ideas", e.message, true);
+    return;
+  }
+  pintarIdeas();
+  if (S.ideas.estado.activo) vigilarIdeas();
+  api("/api/aciertos?origen=ideas").then((a) => { S.juicioIdeas = a; pintarIdeas(); }).catch(() => {});
+}
+
+function juicioDe(idea) {
+  return S.juicioIdeas?.senales.find((s) => s.item_id === idea.item_id && s.simbolo === idea.simbolo);
+}
+
+function estadoIdea(j) {
+  if (!j) return '<span class="neutro">Comprobando…</span>';
+  if (j.estado === "sin_datos") return '<span class="neutro">Sin precios</span>';
+  if (j.estado === "pendiente") return `<span class="neutro">${faltan(j.objetivo)}</span> · ahora <b class="${claseVar(j.movimiento)}">${pct(j.movimiento)}</b>`;
+  const marca = j.acierto ? '<span class="sube">✓ Acierto</span>' : '<span class="baja">✗ Fallo</span>';
+  const frente = j.relativo === null ? "" : ` · frente al índice <b class="${claseVar(j.relativo)}">${pct(j.relativo)}</b>`;
+  return `${marca} · neto <b class="${claseVar(j.neto)}">${pct(j.neto)}</b>${frente}`;
+}
+
+function ideaHTML(i) {
+  const direccion = i.prob_subida >= 55 ? "sube" : "baja";
+  return `<article class="tarjeta idea">
+    <div class="tarjeta-cab"><span class="etiqueta">${esc(RELACIONES[i.relacion] || i.relacion)}</span>
+      <span>${esc(HORIZONTES[i.horizonte] || i.horizonte)} · confianza ${i.confianza}% · ${hace(i.creado)}</span>
+      <span class="derecha">${estadoIdea(juicioDe(i))}</span></div>
+    <div class="idea-cuerpo">
+      <div class="impacto-activo"><button data-abrir="${esc(i.simbolo)}">${esc(i.simbolo)}</button>
+        <small class="${direccion}">${direccion === "sube" ? "▲ Sube" : "▼ Baja"}</small>
+        <small class="neutro">a ${i.precio ? precioTxt(i.precio) : "—"}</small></div>
+      <div class="impacto-texto">${esc(i.mecanismo)}
+        <small><b>Qué tendría que pasar:</b> ${esc(i.que_tendria_que_pasar)}</small>
+        <small>Se invalida si: ${esc(i.invalidacion)}</small></div>
+      <div class="impacto-datos">${barraSenal(i.prob_subida, 100 - i.prob_subida)}</div>
+    </div>
+    <p class="otras-fuentes">Por <a href="${esc(enlaceSeguro(i.url))}" target="_blank" rel="noopener noreferrer" title="${esc(i.titulo_original)}">${esc(i.titulo)}</a> · ${esc(i.fuente)}</p>
+  </article>`;
+}
+
+function pintarIdeas() {
+  const d = S.ideas;
+  if (!d) return;
+  const r = S.juicioIdeas?.resumen;
+  const metrica = (titulo, valor, nota, clase = "") => `<div class="metrica"><span>${titulo}</span><b class="${clase}">${valor}</b><small>${nota}</small></div>`;
+  $("ideas-metricas").innerHTML = metrica("Ideas", d.ideas.length, `últimos 90 días · ${d.watchlist.length} activos en la watchlist`)
+    + (r ? metrica("Aciertos de dirección", pctSimple(r.acierto), `${r.aciertos} de ${r.con_direccion} resueltas · ${r.pendientes} pendientes`)
+      + metrica("Frente al índice", pctSimple(r.acierto_relativo), `le ganaron al índice · media ${pct(r.relativo_medio)}`, "")
+      + metrica("Neto de comisiones", pct(r.neto_medio), `media por idea · comisión media ${pct(r.coste_medio)}`, claseVar(r.neto_medio)) : "");
+  let vacio = "Aún no hay ideas. Pulsa «Buscar oportunidades» después de actualizar las noticias.";
+  if (!d.watchlist.length) vacio = 'Tu watchlist está vacía: añade activos con cantidad 0 en <a href="#cartera">Cartera</a> o carga allí la lista inicial.';
+  else if (!S.cfg.agente_listo) vacio = 'Conecta tu cuenta de Claude en <a href="#ajustes">Ajustes</a> para buscar oportunidades.';
+  $("ideas-lista").innerHTML = d.ideas.length ? d.ideas.map(ideaHTML).join("") : `<p class="vacio">${vacio}</p>`;
+  $("ideas-menciones").innerHTML = d.menciones.length ? d.menciones.map((m) => `<div class="mencion">
+      <div><button class="activo" data-abrir="${esc(m.simbolo)}"><b>${esc(m.simbolo)}</b></button><span>${m.n} ${m.n === 1 ? "lista" : "listas"}</span></div>
+      ${m.ultimas.map((u) => `<a href="${esc(enlaceSeguro(u.url))}" target="_blank" rel="noopener noreferrer">${esc(u.titulo)}</a>`).join("")}
+    </div>`).join("") : '<p class="nota">Ninguna mención reciente.</p>';
+}
+
+async function vigilarIdeas() {
+  if (S.vigilandoIdeas) return;  // un solo bucle aunque se entre varias veces en la vista
+  S.vigilandoIdeas = true;
+  $("b-ideas").disabled = true;
+  for (;;) {
+    const e = await api("/api/ideas/estado").catch(() => null);
+    if (!e) break;
+    if (!e.activo) {
+      estado("ideas", e.error || `Listo: ${e.ideas} ${e.ideas === 1 ? "idea nueva" : "ideas nuevas"}`, Boolean(e.error));
+      break;
+    }
+    estado("ideas", e.total ? `Revisando ${e.hechos} de ${e.total} noticias…` : "Preparando las noticias…");
+    await new Promise((ok) => setTimeout(ok, 3000));
+  }
+  S.vigilandoIdeas = false;
+  $("b-ideas").disabled = false;
+  if (S.vista === "ideas") cargarIdeas();
+}
+
+$("b-ideas").addEventListener("click", async () => {
+  try {
+    const r = await enviar("/api/ideas/analizar");
+    if (r.error) { estado("ideas", r.error, true); return; }
+    vigilarIdeas();
+  } catch (err) {
+    estado("ideas", err.message, true);
+  }
+});
+$("v-ideas").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-abrir]");
+  if (b) abrirActivo(b.dataset.abrir);
+});
+
 /* ---------- Ajustes ---------- */
 
 function pintarAjustes() {
@@ -1120,6 +1263,10 @@ function pintarAjustes() {
   $("a-modelo-chat").innerHTML = $("a-modelo").innerHTML;
   $("a-modelo-chat").value = c.modelo_chat;
   $("a-max").value = c.max_analisis;
+  $("a-max-oport").value = c.max_oportunidades;
+  $("a-max-ideas").value = c.max_ideas;
+  $("a-com-acciones").value = c.comision_acciones;
+  $("a-com-cripto").value = c.comision_cripto;
   $("a-auto").checked = c.auto_analizar;
   $("a-resumen-auto").checked = c.resumen_auto;
   $("a-moneda").value = c.moneda;
@@ -1172,7 +1319,8 @@ $("form-ajustes").addEventListener("submit", async (e) => {
   const cuerpo = {
     conexion: $("a-conexion").value, modelo: $("a-modelo").value, modelo_chat: $("a-modelo-chat").value,
     max_analisis: $("a-max").value, auto_analizar: $("a-auto").checked, resumen_auto: $("a-resumen-auto").checked,
-    moneda: $("a-moneda").value,
+    moneda: $("a-moneda").value, max_oportunidades: $("a-max-oport").value, max_ideas: $("a-max-ideas").value,
+    comision_acciones: $("a-com-acciones").value, comision_cripto: $("a-com-cripto").value,
   };
   if ($("a-clave").value.trim()) cuerpo.anthropic_key = $("a-clave").value;
   if ($("a-x").value.trim()) cuerpo.x_token = $("a-x").value;
@@ -1260,6 +1408,12 @@ $("kraken-cuerpo").addEventListener("click", (e) => {
 const HORIZONTES = { horas: "Horas", "días": "Días", semanas: "Semanas", meses: "Meses" };
 S.aciertos = null;
 S.filtroAciertos = { estado: "todas", activo: null };
+S.origenAciertos = "cartera";
+const VACIO_ACIERTOS = {
+  cartera: "Aún no hay señales de tu cartera. Cuando analices noticias con IA, cada efecto sobre uno de tus activos se guarda aquí y se juzga al terminar su horizonte.",
+  ideas: "Aún no hay ideas. Las que proponga el modo oportunidades se juzgan aquí igual que las señales de tu cartera.",
+  todas: "Aún no hay señales.",
+};
 
 const fechaCorta = (ts) => new Date(ts * 1000).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const pctSimple = (v, dec = 0) => (v === null || v === undefined ? "—" : `${numero(v, dec)} %`);
@@ -1276,7 +1430,7 @@ async function cargarAciertos() {
   $("estado-aciertos").textContent = "Comprobando precios…";
   $("estado-aciertos").classList.remove("error");
   try {
-    S.aciertos = await api("/api/aciertos");
+    S.aciertos = await api(`/api/aciertos?origen=${S.origenAciertos}`);
     $("estado-aciertos").textContent = "";
     pintarAciertos();
   } catch (e) {
@@ -1291,17 +1445,21 @@ function pintarAciertos() {
   const a = S.aciertos;
   if (!a) return;
   const r = a.resumen;
+  document.querySelectorAll("#ac-origen button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.origen === a.origen));
+  $("ac-vacio").textContent = VACIO_ACIERTOS[a.origen];
   $("ac-vacio").hidden = r.total > 0;
   $("ac-contenido").hidden = r.total === 0;
   if (!r.total) return;
-  const intervalo = r.intervalo ? `entre ${numero(r.intervalo[0], 0)} y ${numero(r.intervalo[1], 0)} % (margen 95 %)` : "sin señales con dirección";
+  const margen = (i) => (i ? `entre ${numero(i[0], 0)} y ${numero(i[1], 0)} % (margen 95 %)` : "sin datos aún");
   const vsMoneda = r.habilidad === null ? null : r.habilidad * 100;
   $("ac-metricas").innerHTML = `
-    <div class="metrica"><span>Señales resueltas</span><b>${r.resueltas}</b><small>${r.pendientes} pendientes · ${r.efectivas} en días distintos</small></div>
-    <div class="metrica"><span>Aciertos de dirección</span><b>${pctSimple(r.acierto)}</b><small>${r.aciertos} de ${r.con_direccion} · ${intervalo}</small></div>
+    <div class="metrica"><span>Señales resueltas</span><b>${r.resueltas}</b><small>${r.pendientes} pendientes · ${r.efectivas} en días distintos · ${r.noticias} noticias distintas</small></div>
+    <div class="metrica"><span>Aciertos de dirección</span><b>${pctSimple(r.acierto)}</b><small>${r.aciertos} de ${r.con_direccion} · ${margen(r.intervalo)}</small></div>
     <div class="metrica"><span>Decir siempre «sube»</span><b>${pctSimple(r.siempre_sube)}</b><small>en esas mismas señales</small></div>
+    <div class="metrica"><span>Le ganó al índice</span><b>${pctSimple(r.acierto_relativo)}</b><small>${r.con_indice} comparables · media ${pct(r.relativo_medio)} · ${margen(r.intervalo_relativo)}</small></div>
+    <div class="metrica"><span>Neto de comisiones</span><b class="${claseVar(r.neto_medio)}">${pct(r.neto_medio)}</b><small>media por señal · gana en ${pctSimple(r.acierto_neto)} · comisión ${pct(r.coste_medio)}</small></div>
     <div class="metrica"><span>Calidad de las probabilidades</span><b class="${claseVar(vsMoneda)}">${pct(vsMoneda)}</b><small>frente a decir siempre 50 %</small></div>
-    <div class="metrica"><span>Movimiento a favor</span><b class="${claseVar(r.a_favor)}">${pct(r.a_favor)}</b><small>media por señal con dirección</small></div>`;
+    <div class="metrica"><span>Movimiento a favor</span><b class="${claseVar(r.a_favor)}">${pct(r.a_favor)}</b><small>media por señal, antes de comisiones</small></div>`;
   $("ac-veredicto").textContent = r.veredicto;
 
   $("ac-calibracion").innerHTML = `<thead><tr><th>Cuando dijo BUY</th><th>Señales</th><th>Prometía</th><th>Subió de verdad</th></tr></thead>
@@ -1334,7 +1492,7 @@ function pintarSenales() {
     if (s.acierto === false) return `<span class="baja">✗ Fallo</span>`;
     return `<span class="neutro">${s.direccion === "neutro" ? "Sin dirección" : "Empate"}</span>`;
   };
-  $("ac-senales").innerHTML = `<thead><tr><th>Emitida</th><th>Activo</th><th>Noticia</th><th>BUY</th><th>Horizonte</th><th>Entrada</th><th>Salida o ahora</th><th>Movimiento</th><th>Resultado</th></tr></thead>
+  $("ac-senales").innerHTML = `<thead><tr><th>Emitida</th><th>Activo</th><th>Noticia</th><th>BUY</th><th>Horizonte</th><th>Entrada</th><th>Salida o ahora</th><th>Movimiento</th><th title="Lo que ganó la señal menos lo que hizo el índice en el mismo periodo">Vs índice</th><th title="A favor de la señal, menos la comisión de ida y vuelta">Neto</th><th>Resultado</th></tr></thead>
   <tbody>${lista.length ? lista.map((s) => {
     const precio = s.estado === "resuelta" ? s.salida : s.entrada && s.movimiento !== null ? s.entrada * (1 + s.movimiento / 100) : null;
     return `<tr>
@@ -1346,12 +1504,21 @@ function pintarSenales() {
       <td>${s.entrada ? precioTxt(s.entrada) : "—"}</td>
       <td>${precio ? precioTxt(precio) : "—"}</td>
       <td class="${claseVar(s.movimiento)}">${pct(s.movimiento)}</td>
+      <td class="${claseVar(s.relativo)}">${s.relativo === undefined ? "—" : pct(s.relativo)}</td>
+      <td class="${claseVar(s.neto)}">${s.neto === undefined ? "—" : pct(s.neto)}</td>
       <td>${resultado(s)}</td>
     </tr>`;
-  }).join("") : `<tr><td colspan="9" class="vacio-mini">No hay señales con este filtro.</td></tr>`}</tbody>`;
+  }).join("") : `<tr><td colspan="11" class="vacio-mini">No hay señales con este filtro.</td></tr>`}</tbody>`;
 }
 
 $("b-act-aciertos").addEventListener("click", cargarAciertos);
+$("ac-origen").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-origen]");
+  if (!b || b.dataset.origen === S.origenAciertos) return;
+  S.origenAciertos = b.dataset.origen;
+  S.filtroAciertos.activo = null;
+  cargarAciertos();
+});
 $("ac-filtros").addEventListener("click", (e) => {
   const b = e.target.closest("[data-estado],[data-activo]");
   if (!b) return;
@@ -1382,6 +1549,8 @@ async function arrancar() {
   actualizarFeed("social", true);
   const agente = await api("/api/agente").catch(() => null);
   if (agente?.activo) vigilarAgente();
+  const ideas = await api("/api/ideas/estado").catch(() => null);
+  if (ideas?.activo) vigilarIdeas();
 
   setInterval(refrescarCola, 10000);
   setInterval(refrescarIndices, 30000);

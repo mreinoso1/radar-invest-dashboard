@@ -24,12 +24,21 @@ import kraken
 import marcador
 import mercado
 import noticias
+import oportunidades
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("RADAR_PUERTO", 8770))
 STATIC = Path(__file__).resolve().parent / "static"
 HOSTS_VALIDOS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 MONEDAS = ("EUR", "USD", "GBP")
 SECRETOS = ("anthropic_key", "x_token", "kraken_key", "kraken_secret", "kraken_fut_key", "kraken_fut_secret")
+LIMITES = [  # ajustes numéricos: (clave, tipo, mínimo, máximo, error)
+    ("max_analisis", int, 1, 100, "Número de noticias no válido"),
+    ("max_oportunidades", int, 1, 60, "Número de noticias para ideas no válido"),
+    ("max_ideas", int, 1, 20, "Número de ideas no válido"),
+    ("comision_acciones", float, 0.0, 5.0, "Comisión de acciones no válida"),
+    ("comision_cripto", float, 0.0, 5.0, "Comisión de cripto no válida"),
+]
+DIAS_IDEAS = 90  # las ideas con horizonte de meses tardan eso en resolverse
 
 
 class ErrorApi(Exception):
@@ -86,6 +95,18 @@ def cartera():
     }
 
 
+def ideas():
+    """Lo que pinta la vista Ideas. Cómo va cada idea lo da /api/aciertos?origen=ideas, que usa la red."""
+    menciones = datos.menciones(int(time.time()) - oportunidades.HORAS_PENDIENTES * 3600)
+    return {
+        "ideas": datos.ideas(int(time.time()) - DIAS_IDEAS * 86400),
+        "estado": oportunidades.estado(),
+        "watchlist": sorted(oportunidades.watchlist()),
+        "menciones": [{"simbolo": s, "n": len(v), "ultimas": v[:3]}
+                      for s, v in sorted(menciones.items(), key=lambda kv: -len(kv[1]))],
+    }
+
+
 def guardar_posicion(cuerpo):
     simbolo = str(cuerpo.get("simbolo", "")).strip().upper()
     if not simbolo or len(simbolo) > 24:
@@ -132,11 +153,12 @@ def guardar_ajustes(cuerpo):
     for clave in ("auto_analizar", "resumen_auto"):
         if clave in cuerpo:
             cambios[clave] = bool(cuerpo[clave])
-    if "max_analisis" in cuerpo:
-        try:
-            cambios["max_analisis"] = max(1, min(100, int(cuerpo["max_analisis"])))
-        except (TypeError, ValueError):
-            raise ErrorApi(400, "Número de noticias no válido")
+    for clave, tipo, bajo, alto, error in LIMITES:
+        if clave in cuerpo:
+            try:
+                cambios[clave] = max(bajo, min(alto, tipo(cuerpo[clave])))
+            except (TypeError, ValueError):
+                raise ErrorApi(400, error)
     datos.guardar_ajustes(cambios)
     return ajustes_publicos()
 
@@ -248,7 +270,11 @@ class Manejador(BaseHTTPRequestHandler):
         elif ruta == "/api/agente":
             self._json(agente.estado())
         elif ruta == "/api/aciertos":
-            self._json(marcador.calcular())
+            self._json(marcador.calcular(q.get("origen", "cartera")))
+        elif ruta == "/api/ideas":
+            self._json(ideas())
+        elif ruta == "/api/ideas/estado":
+            self._json(oportunidades.estado())
         elif ruta == "/api/kraken":
             self._json(kraken.resumen(q.get("forzar") == "1"))
         elif ruta == "/api/cuenta":
@@ -281,6 +307,11 @@ class Manejador(BaseHTTPRequestHandler):
             ids = cuerpo.get("ids") if isinstance(cuerpo.get("ids"), list) else None
             error = agente.analizar("social" if cuerpo.get("tipo") == "social" else "noticia", ids)
             self._json({"error": error} if error else {"ok": True})
+        elif url.path == "/api/ideas/analizar":
+            error = oportunidades.analizar()
+            self._json({"error": error} if error else {"ok": True})
+        elif url.path == "/api/watchlist/inicial":
+            self._json({"anadidos": oportunidades.cargar_watchlist_inicial()})
         elif url.path == "/api/resumen":
             self._json(analista.generar_resumen(str(cuerpo.get("simbolo", "")), bool(cuerpo.get("forzar"))))
         elif url.path == "/api/chat":

@@ -25,6 +25,7 @@
     <a href="#mercado" data-vista="mercado"><svg viewBox="0 0 24 24"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg>Mercado</a>
     <a href="#cartera" data-vista="cartera"><svg viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="12.5" rx="2"/><path d="M8.5 7V5.5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2V7M3.5 12.5h17"/></svg>Cartera</a>
     <a href="#noticias" data-vista="noticias"><svg viewBox="0 0 24 24"><path d="M4 5.5h13v13a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2zM17 9.5h3v9a1.5 1.5 0 0 1-3 0M7.5 9h6M7.5 12.5h6M7.5 16h4"/></svg>Noticias</a>
+    <a href="#ideas" data-vista="ideas"><svg viewBox="0 0 24 24"><path d="M9 17.5h6M10 20.5h4M12 3.5a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2v1h5v-1c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3.5z"/></svg>Ideas</a>
     <a href="#social" data-vista="social"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H10l-4.5 3.5v-3.5H4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>Social</a>
     <a href="#aciertos" data-vista="aciertos"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="m12 12 7-7M16 5h3v3"/></svg>Aciertos</a>
     <a href="#ajustes" data-vista="ajustes" class="abajo"><svg viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 12h3m4 0h9M4 17h11m4 0h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>Ajustes</a>
@@ -126,8 +127,22 @@
         <p class="nota" id="f-nota"></p>
       </form>
 
+      <h2 class="ac-titulo">Mi cartera</h2>
       <div class="tabla-envoltura"><table class="tabla" id="tabla-cartera"></table></div>
-      <p class="vacio" id="cartera-vacia" hidden>Aún no tienes activos. Añade el primero arriba: con cantidad 0 lo sigues sin registrar una compra.</p>
+      <p class="vacio" id="cartera-vacia" hidden>Aún no tienes activos. Añade el primero arriba con su cantidad y precio de compra.</p>
+
+      <div class="watchlist">
+        <div class="cabecera-vista">
+          <h2>Watchlist</h2>
+          <div class="acciones">
+            <span class="estado" id="estado-watchlist" role="status"></span>
+            <button class="boton fino" id="b-watchlist-inicial">Cargar lista inicial</button>
+          </div>
+        </div>
+        <p class="nota">Lo que sigues sin tenerlo: añádelo arriba con cantidad 0. Es el universo del modo oportunidades: las <a href="#ideas">ideas</a> solo pueden salir de aquí.</p>
+        <div class="tabla-envoltura"><table class="tabla" id="tabla-watchlist"></table></div>
+        <p class="vacio" id="watchlist-vacia" hidden>Tu watchlist está vacía. Añade activos con cantidad 0 o carga la lista inicial: líderes de cada sector, ETF sectoriales y las principales cripto.</p>
+      </div>
 
       <div class="kraken">
         <div class="cabecera-vista">
@@ -162,6 +177,27 @@
       </div>
     </section>
 
+    <!-- IDEAS -->
+    <section class="vista vista-texto" id="v-ideas" hidden>
+      <div class="cabecera-vista">
+        <h1>Ideas nuevas</h1>
+        <div class="acciones">
+          <span class="estado" id="estado-ideas" role="status"></span>
+          <button class="boton primario" id="b-ideas">Buscar oportunidades</button>
+        </div>
+      </div>
+      <p class="nota-vista">El agente revisa las noticias buscando efectos sobre tu <a href="#cartera">watchlist</a>, no sobre lo que ya tienes: proveedores, clientes, competidores, sector y macro. Cada idea guarda el precio del momento y se juzga en <a href="#aciertos">Aciertos</a> igual que las señales de tu cartera, frente al índice y tras comisiones.</p>
+      <div class="metricas" id="ideas-metricas"></div>
+      <div class="dos-columnas">
+        <div class="feed" id="ideas-lista"></div>
+        <aside class="balance">
+          <h2>Citados en listas · 72 h</h2>
+          <div id="ideas-menciones"></div>
+          <p class="legal">Cuántos artículos tipo «acciones para comprar» citan cada activo de tu watchlist. Es sentimiento de terceros, a menudo promocional: no es un hecho ni una recomendación. El agente solo ve este recuento, nunca el texto de esas listas.</p>
+        </aside>
+      </div>
+    </section>
+
     <!-- SOCIAL -->
     <section class="vista vista-texto" id="v-social" hidden>
       <div class="cabecera-vista">
@@ -184,11 +220,16 @@
         <h1>Aciertos del agente</h1>
         <div class="acciones">
           <span class="estado" id="estado-aciertos" role="status"></span>
+          <div class="segmentos" id="ac-origen" role="group" aria-label="Qué señales">
+            <button data-origen="cartera" aria-pressed="true">Mi cartera</button>
+            <button data-origen="ideas" aria-pressed="false">Ideas</button>
+            <button data-origen="todas" aria-pressed="false">Todas</button>
+          </div>
           <button class="boton" id="b-act-aciertos">Actualizar</button>
         </div>
       </div>
-      <p class="nota-vista">Cada señal es el BUY de una noticia sobre un activo. Se juzga al terminar su horizonte (horas: 1 día o la sesión siguiente; días: 7; semanas: 30; meses: 90) contra el precio que el agente tenía delante. Se calcula con precios de Yahoo y no gasta tu plan.</p>
-      <p class="vacio" id="ac-vacio" hidden>Aún no hay señales. Cuando analices noticias con IA, cada efecto sobre uno de tus activos se guarda aquí y se juzga al terminar su horizonte.</p>
+      <p class="nota-vista">Cada señal es el BUY de una noticia sobre un activo. Se juzga al terminar su horizonte (horas: 1 día o la sesión siguiente; días: 7; semanas: 30; meses: 90) contra el precio que el agente tenía delante, y se compara con el índice del mismo periodo (SPY, o BTC para las cripto) y tras una comisión de ida y vuelta. Se calcula con precios de Yahoo y no gasta tu plan.</p>
+      <p class="vacio" id="ac-vacio" hidden></p>
       <div id="ac-contenido">
         <div class="metricas" id="ac-metricas"></div>
         <p class="veredicto" id="ac-veredicto"></p>
@@ -278,6 +319,26 @@
           <label for="a-kraken-fut-secret">Clave privada de Kraken Futures</label>
           <input id="a-kraken-fut-secret" type="password" placeholder="Opcional" autocomplete="off" spellcheck="false">
           <p class="nota">Se guardan solo en este ordenador, fuera de OneDrive, y nunca se vuelven a mostrar. <button class="enlace" id="b-kraken-quitar" type="button">Desconectar Kraken</button></p>
+        </div>
+
+        <h2>Ideas y marcador</h2>
+        <div class="campo">
+          <label for="a-max-oport">Noticias por búsqueda de oportunidades</label>
+          <input id="a-max-oport" type="number" min="1" max="60" step="1">
+          <p class="nota">Cada 8 noticias son una consulta al modelo. Las listas tipo «acciones para comprar» no cuentan: las lee Python, no el modelo.</p>
+        </div>
+        <div class="campo">
+          <label for="a-max-ideas">Activos distintos como mucho por búsqueda</label>
+          <input id="a-max-ideas" type="number" min="1" max="20" step="1">
+        </div>
+        <div class="campo">
+          <label for="a-com-acciones">Comisión de ida y vuelta en acciones y ETF (%)</label>
+          <input id="a-com-acciones" type="number" min="0" max="5" step="0.01">
+        </div>
+        <div class="campo">
+          <label for="a-com-cripto">Comisión de ida y vuelta en cripto (%)</label>
+          <input id="a-com-cripto" type="number" min="0" max="5" step="0.01">
+          <p class="nota">El marcador las resta a cada señal. Por defecto 0,52 % en cripto, dos veces la comisión taker de Kraken.</p>
         </div>
 
         <h2>Cartera</h2>
