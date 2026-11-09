@@ -317,6 +317,7 @@ main { grid-area: main; position: relative; min-width: 0; min-height: 0; overflo
 /* Kraken */
 .kraken { margin-top: 26px; }
 /* Simulación */
+.rejilla-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; }
 .criterio { margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--linea); border-radius: 10px; background: var(--panel); }
 .criterio h2 small { font-weight: 400; color: var(--texto-3); text-transform: none; letter-spacing: 0; }
 .criterio-partes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 8px 0; }

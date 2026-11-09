@@ -93,7 +93,10 @@ def simular(senales, velas, cfg=None, indices=None):
         dia = velas[s["simbolo"]][e[0]]["time"] // DIA
         programadas.setdefault(dia, []).append((s, *e))
 
-    todos = sorted({d for s in velas for d in dias_de[s]})
+    # La curva empieza el día de la primera entrada: antes la estrategia no existía, y comparar con lo que el
+    # índice subió en esos años sería injusto con ella.
+    primera = min(programadas) if programadas else None
+    todos = sorted(d for d in {d for s in velas for d in dias_de[s]} if primera is not None and d >= primera)
     efectivo, abiertas, cerradas, curva = c["capital"], [], [], []
     bloqueado_hasta, previo, ultimo_dia = None, c["capital"], None
 

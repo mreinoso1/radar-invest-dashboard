@@ -34,6 +34,7 @@ import mercado
 import noticias
 import oportunidades
 import paper
+import simulador
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("RADAR_PUERTO", 8770))
 STATIC = Path(__file__).resolve().parent / "static"
@@ -84,6 +85,7 @@ def ajustes_publicos():
         "tiene_telegram": bool(cfg["telegram_token"]),
         "tiene_fred": bool(cfg["fred_key"]),
         "tiene_sec": bool(cfg["sec_contacto"]),
+        "simulacion_efectiva": simulador.config_actual(cfg),
         "agente_listo": agente.listo(cfg),
         "cuenta": cuenta.estado(),
         "modelos": agente.MODELOS,

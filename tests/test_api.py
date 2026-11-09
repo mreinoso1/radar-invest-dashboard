@@ -185,6 +185,8 @@ class ApiTest(unittest.TestCase):
     def test_ajustes_de_la_simulacion_acotados(self):
         _, r = pedir("/api/ajustes", {"simulacion": {"riesgo_pct": 50, "cortos": False, "inventado": 1}})
         self.assertEqual(r["simulacion"], {"riesgo_pct": 5.0, "cortos": False})
+        efectiva = r["simulacion_efectiva"]  # la que usa el simulador: lo cambiado más lo de serie
+        self.assertEqual((efectiva["riesgo_pct"], efectiva["cortos"], efectiva["stop_atr"]), (5.0, False, 2.0))
         self.assertEqual(pedir("/api/ajustes", {"simulacion": {"stop_atr": "mucho"}})[0], 400)
 
     def test_simulacion_y_criterio(self):

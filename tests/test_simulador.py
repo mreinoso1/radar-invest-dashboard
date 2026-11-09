@@ -120,6 +120,11 @@ class MetricasTest(unittest.TestCase):
         self.assertAlmostEqual(o["mov_indice"], 5.0)
         self.assertAlmostEqual(o["exceso"], 5.0)  # ganó un 10 %, el índice un 5 %
 
+    def test_la_curva_empieza_con_la_primera_entrada(self):
+        r = simulador.simular([senal(20)], {"NVDA": velas()}, SIN_COSTES)
+        self.assertEqual(r["curva"][0][0], D0 + 21)  # no en el día 0: la estrategia aún no existía
+        self.assertEqual(simulador.simular([], {"NVDA": velas()})["curva"], [])
+
     def test_curva_del_indice_con_el_mismo_capital(self):
         indice = velas(5, cambios={4: {"close": 110.0}})
         curva = simulador.curva_indice(indice, [D0 + i for i in range(5)], 10_000)

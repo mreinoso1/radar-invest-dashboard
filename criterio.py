@@ -77,7 +77,8 @@ def evaluar(operaciones, rentabilidad, de_indices, n_reglas, minimo, nombre):
         {"nombre": f"Al menos {minimo} operaciones", "ok": len(operaciones) >= minimo, "valor": len(operaciones)},
         {"nombre": "Rentabilidad neta mayor que la del índice", "valor": [rentabilidad, indice],
          "ok": rentabilidad is not None and indice is not None and rentabilidad > indice},
-        {"nombre": f"Intervalo del {confianza * 100:.2f} % del exceso medio por encima de 0", "valor": intervalo,
+        {"nombre": f"Intervalo del {confianza * 100:.2f} % del exceso medio por encima de 0".replace(".", ","),
+         "valor": intervalo,
          "ok": bool(intervalo) and intervalo[0] > 0},
     ]
     return {"nombre": nombre, "pasa": all(p["ok"] for p in puntos), "puntos": puntos, "confianza": confianza,

@@ -1345,6 +1345,7 @@ function pintarSimulacion(r) {
     autoSize: true, layout: { background: { color: COL.fondo }, textColor: COL.texto, fontFamily: "IBM Plex Mono, Consolas, monospace", fontSize: 11 },
     grid: { vertLines: { color: COL.rejilla }, horzLines: { color: COL.rejilla } },
     rightPriceScale: { borderColor: COL.eje, mode: 1 }, timeScale: { borderColor: COL.eje }, handleScroll: false, handleScale: false,
+    localization: { priceFormatter: (v) => `${numero(v, 0)} $` },
   });
   S.sim.grafica = g;
   const lineas = [["Estrategia", COL.acento, r.curva], ["SPY", "#6aa8ff", r.indices?.SPY || []], ["BTC", "#c58bf2", r.indices?.["BTC-USD"] || []]];
@@ -1603,6 +1604,11 @@ function pintarAjustes() {
   $("a-fred").value = "";
   $("a-fred").placeholder = c.tiene_fred ? "Guardada. Escribe otra para cambiarla" : "Opcional: fechas de IPC, empleo, PIB y PCE";
   $("a-fred-estado").textContent = c.tiene_fred ? "● Configurada" : "";
+  // Simulación: las comisiones ya se ajustan arriba (son las del marcador); aquí, el resto.
+  const sim = c.simulacion_efectiva;
+  $("a-sim").innerHTML = Object.entries(SIM_CONFIG).filter(([k]) => !k.startsWith("comision"))
+    .map(([k, [t]]) => `<div class="campo"><label for="a-sim-${k}">${esc(t)}</label><input id="a-sim-${k}" data-sim="${k}" type="number" step="any" min="0" value="${sim[k]}"></div>`).join("");
+  $("a-sim-cortos").checked = sim.cortos;
   $("a-sec").value = "";
   $("a-sec").placeholder = c.tiene_sec ? "Guardado. Escribe otro para cambiarlo" : "Nombre correo@ejemplo.com";
   $("a-sec-estado").textContent = c.tiene_sec ? "● Configurado" : "";
@@ -1669,6 +1675,13 @@ $("form-ajustes").addEventListener("submit", async (e) => {
   if ($("a-tg-token").value.trim()) cuerpo.telegram_token = $("a-tg-token").value.trim();
   if ($("a-fred").value.trim()) cuerpo.fred_key = $("a-fred").value.trim();
   if ($("a-sec").value.trim()) cuerpo.sec_contacto = $("a-sec").value.trim();
+  // Solo se guardan los valores que difieren de los actuales: así un guardado sin cambios no crea una versión nueva.
+  const sim = { ...S.cfg.simulacion };
+  document.querySelectorAll("[data-sim]").forEach((el) => {
+    if (Number(el.value) !== S.cfg.simulacion_efectiva[el.dataset.sim]) sim[el.dataset.sim] = Number(el.value);
+  });
+  if ($("a-sim-cortos").checked !== S.cfg.simulacion_efectiva.cortos) sim.cortos = $("a-sim-cortos").checked;
+  cuerpo.simulacion = sim;
   if ($("a-clave").value.trim()) cuerpo.anthropic_key = $("a-clave").value;
   if ($("a-x").value.trim()) cuerpo.x_token = $("a-x").value;
   for (const [pub, priv, cPub, cPriv] of [["a-kraken-key", "a-kraken-secret", "kraken_key", "kraken_secret"],
