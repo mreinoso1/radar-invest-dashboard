@@ -275,9 +275,10 @@ main { grid-area: main; position: relative; min-width: 0; min-height: 0; overflo
 .acciones { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .estado { font-size: 12.5px; color: var(--texto-2); }
 .estado.error { color: var(--baja); }
-.nota-vista { color: var(--texto-3); font-size: 13px; margin: -6px 0 12px; }
+/* Solo arriba y abajo: los márgenes laterales los pone .vista-texto > * para centrar. */
+.nota-vista { color: var(--texto-3); font-size: 13px; margin-top: -6px; margin-bottom: 12px; }
 
-.metricas { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.metricas { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .metrica { padding: 12px 14px; border: 1px solid var(--linea); border-radius: 10px; background: var(--panel); }
 .metrica span { display: block; font-size: 12px; color: var(--texto-3); }
 .metrica b { display: block; font: 500 24px/1.3 var(--mono); }
@@ -315,6 +316,29 @@ main { grid-area: main; position: relative; min-width: 0; min-height: 0; overflo
 
 /* Kraken */
 .kraken { margin-top: 26px; }
+.watchlist { margin-top: 26px; }
+.watchlist .cabecera-vista { margin-bottom: 6px; }
+.watchlist .tabla-envoltura { margin-top: 10px; }
+
+/* Ideas nuevas */
+.idea-cuerpo { display: grid; grid-template-columns: 96px minmax(0, 1fr) 210px; gap: 3px 12px; padding: 4px 0 6px; }
+.idea .impacto-activo small { margin-top: 1px; }
+.idea .impacto-texto small b { color: var(--texto-2); font-weight: 600; }
+.idea .tarjeta-cab .derecha { font: 12px var(--mono); }
+.idea .tarjeta-cab .derecha b { font-weight: 500; }
+.idea .otras-fuentes { margin: 2px 0 0; }
+.mencion { padding: 7px 0; border-bottom: 1px solid var(--linea); }
+.mencion:last-of-type { border-bottom: 0; }
+.mencion > div { display: flex; justify-content: space-between; align-items: baseline; font: 12.5px var(--mono); }
+.mencion > div span { color: var(--texto-3); font-size: 11.5px; }
+.mencion .activo { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.mencion .activo:hover b { color: var(--acento); }
+.mencion a { display: block; margin-top: 3px; font-size: 11.5px; color: var(--texto-3); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mencion a:hover { color: var(--acento); }
+@media (max-width: 760px) {
+  .idea-cuerpo { grid-template-columns: 84px minmax(0, 1fr); }
+  .idea-cuerpo .impacto-datos { grid-column: 1 / -1; }
+}
 .kraken .cabecera-vista { margin-bottom: 6px; }
 .kraken .tabla-envoltura { margin-top: 10px; }
 .nota.error { color: var(--baja); }

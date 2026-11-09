@@ -25,8 +25,13 @@ The interface and the analyst's answers are in Spanish.
   ratios (EV/sales, EV/EBITDA, P/E…), margins, cash and debt, analyst revenue estimates, and four years plus
   five quarters of history. It can propose levels and draw them on the chart, and you can paste longer
   documents into the chat.
-- **Hit-rate scoreboard**: judges each signal once its horizon ends and reports accuracy with a Wilson
-  interval, the Brier score against always saying 50 %, and calibration by bands.
+- **Opportunities mode**: a second pass over the news that looks for effects on your watchlist (assets you
+  follow with quantity 0) rather than on what you hold: suppliers, customers, competitors, sector and macro.
+  The model can only pick symbols from the watchlist, and each idea states what would have to happen for it
+  to work. "Stocks to buy" lists never reach the model: Python counts the tickers they cite as sentiment.
+- **Hit-rate scoreboard**: judges each signal (portfolio and ideas alike) once its horizon ends and reports
+  accuracy with a Wilson interval, the Brier score against always saying 50 %, calibration by bands, the
+  result against SPY or BTC over the same window, and the result net of a round-trip fee.
 
 ## Screenshots
 
@@ -93,6 +98,12 @@ python server.py
 ```
 
 Then open http://127.0.0.1:8770. Set `RADAR_PUERTO` to use another port.
+
+Tests use only the standard library and never touch the network, Claude or your data:
+
+```bash
+python -m unittest discover -s tests -t .
+```
 
 The analyst needs one of these, configured in **Ajustes** (Settings):
 
