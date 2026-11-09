@@ -163,6 +163,25 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(pedir("/api/alertas/probar", {"canal": "windows"})[1], {"windows": "ok"})
         windows.assert_called_once()
 
+    def test_contacto_sec_validado_y_oculto(self):
+        self.assertEqual(pedir("/api/ajustes", {"sec_contacto": "sin correo"})[0], 400)
+        codigo, r = pedir("/api/ajustes", {"sec_contacto": "Ana Perez ana@ejemplo.com"})
+        self.assertEqual(codigo, 200)
+        self.assertTrue(r["tiene_sec"])
+        self.assertNotIn("ana@ejemplo.com", json.dumps(r))
+
+    def test_top_y_aciertos_de_reglas(self):
+        codigo, r = pedir("/api/top")
+        self.assertEqual((codigo, r["top"], r["tipos"]), (200, [], []))
+        self.assertEqual(pedir("/api/aciertos?origen=reglas")[1]["origen"], "reglas")
+
+    def test_datos_cuantitativos(self):
+        with mock.patch.object(server.cuant, "de_activo", return_value={"volumen": {"relativo": 2.0, "movimiento": 1.0, "dia": "2026-11-09"}}), \
+                mock.patch.object(server.cuant, "macro", return_value={"tipos": {}, "fred": {}}):
+            codigo, r = pedir("/api/cuant?s=NVDA")
+        self.assertEqual(codigo, 200)
+        self.assertIn("2,0 veces", r["lineas"][0])
+
     def test_sigue_rechazando_otras_webs(self):
         codigo, _ = pedir("/api/cartera", cabeceras={"Origin": "https://malicioso.example"})
         self.assertEqual(codigo, 403)

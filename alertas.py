@@ -17,16 +17,21 @@ import traceback
 from datetime import datetime
 
 import calendario
+import calibracion
 import canales
+import cuant
 import datos
 import marcador
 import mercado
+import reglas
 
 CICLO = 60             # segundos entre rondas
+HORA_DIARIA = 22       # tras el cierre de Wall Street: foto de datos cuantitativos y señales por reglas
 HISTERESIS = 0.3       # % que el precio debe alejarse de un nivel antes de poder volver a avisar de él
 HORA = 3600
 SIN_LIMITE = {"precio", "calendario"}  # las que pides tú o tienen fecha fija no se frenan por activo
 TIPOS_DIBUJO = ("horizontal", "rect")
+_diario = threading.Lock()
 
 
 def _p(v, formato=",.6g"):
@@ -175,14 +180,43 @@ def toca_resumen(ahora, hora_resumen, ultimo):
     return momento.hour >= hora_resumen and ultimo != momento.date().isoformat()
 
 
-def componer_resumen(pendientes, ahora):
+def linea_top(s):
+    h = s["historial"]
+    historial = (f"{h['efectivas']} resueltas, {_p(h['frente_indice'], '.0f')} % frente al índice"
+                 if h.get("efectivas") else "sin historial")
+    flecha = "▲" if s["direccion"] == "sube" else "▼"
+    return f"• {s['simbolo']} {flecha} {s['buy_pct']} % · {s['tipo']} · {historial}"
+
+
+def componer_resumen(pendientes, ahora, top=()):
     lineas = [f"• {a['titulo']}" for a in pendientes[:20]]
     if len(pendientes) > 20:
         lineas.append(f"… y {len(pendientes) - 20} más en Radar.")
+    if top:
+        lineas += ["", "Top 5 señales (estimaciones, no recomendaciones):"] + [linea_top(s) for s in top]
     return {"clave": f"resumen:{datetime.fromtimestamp(ahora):%Y-%m-%d}", "tipo": "resumen", "simbolo": None,
             "urgente": True,
             "titulo": f"Resumen del día: {len(pendientes)} {'aviso' if len(pendientes) == 1 else 'avisos'}",
             "texto": "\n".join(lineas)}
+
+
+def top5(ahora):
+    """El Top 5 de señales pendientes, con el peso de su tipo. Consulta precios: puede fallar sin red."""
+    r = marcador.calcular("todas")
+    return calibracion.top(r["senales"], r["por_tipo"], ahora)
+
+
+def trabajo_diario(simbolos, ahora):
+    """Foto de los datos cuantitativos y señales por reglas. Tarda (EDGAR va despacio): va en su propio hilo."""
+    if not _diario.acquire(blocking=False):
+        return
+    try:
+        cuant.foto_diaria(simbolos, ahora)
+        reglas.generar(simbolos, ahora)
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+    finally:
+        _diario.release()
 
 
 # ---------- Vigilante ----------
@@ -226,13 +260,23 @@ def ronda(ahora=None):
         if a.get("regla_id"):
             datos.disparar_regla(a["regla_id"], int(ahora))
 
+    hoy = datetime.fromtimestamp(ahora).date().isoformat()
+    if datetime.fromtimestamp(ahora).hour >= HORA_DIARIA and datos.estado_alertas("ultimo_diario") != hoy:
+        datos.guardar_estado_alertas("ultimo_diario", hoy)
+        threading.Thread(target=trabajo_diario, args=(simbolos, ahora), daemon=True).start()
+
     if toca_resumen(ahora, int(cfg["hora_resumen"]), datos.estado_alertas("ultimo_resumen")):
         pendientes = datos.alertas_sin_enviar()
-        if pendientes:
-            resumen = componer_resumen(pendientes, ahora)
+        try:
+            top = top5(ahora)
+        except Exception:
+            top = []  # sin el Top 5, el resumen sale igual
+        if pendientes or top:
+            resumen = componer_resumen(pendientes, ahora, top)
             envio = canales.enviar(resumen, cfg)
             datos.guardar_alerta(resumen, envio, int(ahora))
-            datos.marcar_enviadas([a["id"] for a in pendientes], {"resumen": "ok"})
+            if pendientes:
+                datos.marcar_enviadas([a["id"] for a in pendientes], {"resumen": "ok"})
         datos.guardar_estado_alertas("ultimo_resumen", datetime.fromtimestamp(ahora).date().isoformat())
 
     datos.guardar_estado_alertas("precios", {**previos, **precios})

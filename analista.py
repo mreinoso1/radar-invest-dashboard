@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import agente
+import cuant
 import cuenta
 import datos
 import kraken
@@ -56,6 +57,10 @@ REGLAS = """## Reglas
   mercado aunque no nombre el activo, y solo cuenta si explicas el mecanismo que lo conecta. Cuando te
   apoyes en una noticia, di la fuente y la fecha. Un titular sin extracto dice poco: no le saques más.
 - El precio objetivo de los analistas es una opinión que suele ir por detrás del precio, no una promesa.
+- <datos_cuantitativos> son medidas que Radar calcula: revisiones de estimaciones, compras y ventas de
+  directivos (Form 4 de la SEC), posiciones cortas, funding e interés abierto en cripto, volumen relativo y
+  tipos de interés. Cítalas con su cifra y su fecha. Explican qué espera ya el mercado, pero ninguna predice
+  por sí sola: no saques una dirección de un solo dato. "s/d" significa que no hay dato, no que sea cero.
 - <fundamentales> son las cuentas de la empresa según Yahoo: úsalas para ratios como EV/ventas o PER y di de
   qué fecha son. Yahoo a veces mezcla periodos o falla en empresas pequeñas o recién reestructuradas: si dos
   cifras no cuadran (un margen imposible, un EV que no encaja con capitalización, caja y deuda), dilo en vez
@@ -403,6 +408,7 @@ def _contexto(simbolo, f, velas=False, menciones=""):
     return (f"<fecha>{datetime.now():%Y-%m-%d %H:%M}</fecha>\n<activo>\n{_bloque_ficha(f)}\n"
             + (f"Qué es, según Yahoo: {html.escape(que_es, quote=False)}\n" if que_es else "") + "</activo>\n"
             + _bloque_fundamentales(f)
+            + cuant.bloque_seguro([simbolo])
             + f"<posicion>{_posicion(f)}</posicion>\n"
             + (f"<kraken>\n{html.escape(en_kraken, quote=False)}\n</kraken>\n" if en_kraken else "")
             + _relacionados(f, menciones)

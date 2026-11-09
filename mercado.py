@@ -237,6 +237,26 @@ def consenso(simbolo):
     return _cacheado(("consenso", simbolo), 21600, cargar)
 
 
+def resumen_yahoo(simbolo, modulos, horas=6):
+    """Módulos de quoteSummary de Yahoo ({} si no hay o falla). Para lo que no tiene función propia."""
+
+    def cargar():
+        global _sesion
+        try:
+            abridor, crumb = _sesion_yahoo()
+            url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{quote(simbolo, safe='')}?"
+                   + urlencode({"modules": ",".join(modulos), "crumb": crumb}))
+            return json.loads(abridor.open(url, timeout=10).read())["quoteSummary"]["result"][0] or {}
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                _sesion = None
+            return {}
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError, TypeError):
+            return {}
+
+    return _cacheado(("resumen", simbolo, tuple(modulos)), horas * 3600, cargar)
+
+
 def perfil(simbolo):
     """Qué es el activo según Yahoo: a qué se dedica la empresa, o qué es el token."""
 

@@ -627,6 +627,12 @@ async function abrirAnalista(simbolo) {
   pintarFicha(f);
   pintarResumen(f.resumen);
   pintarChat(f.chat);
+  // Los datos cuantitativos llegan aparte: la primera vez pueden tardar (EDGAR va despacio).
+  api(`/api/cuant?s=${encodeURIComponent(simbolo)}`).then((c) => {
+    if (turno !== turnoAnalista || !c.lineas.length) return;
+    $("an-ficha").insertAdjacentHTML("beforeend", `<details class="datos-cuant"><summary>Datos cuantitativos</summary>
+      <ul>${[...c.lineas, ...c.macro].map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>`);
+  }).catch(() => {});
   // Espera un poco: quien va pasando por varios activos no debe gastar un resumen en cada uno.
   if (f.resumen_viejo && S.cfg.resumen_auto && S.cfg.agente_listo) temporizadorResumen = setTimeout(() => generarResumen(simbolo), 1500);
 }
@@ -1167,6 +1173,21 @@ async function cargarIdeas() {
   pintarIdeas();
   if (S.ideas.estado.activo) vigilarIdeas();
   api("/api/aciertos?origen=ideas").then((a) => { S.juicioIdeas = a; pintarIdeas(); }).catch(() => {});
+  api("/api/top").then(pintarTop).catch(() => { $("ideas-top").innerHTML = ""; });
+}
+
+function pintarTop(r) {
+  const historial = (s) => (s.historial.efectivas
+    ? `${s.historial.efectivas} resueltas · ${pctSimple(s.historial.frente_indice)} frente al índice${s.historial.intervalo ? ` (${numero(s.historial.intervalo[0], 0)}–${numero(s.historial.intervalo[1], 0)} %)` : ""}`
+    : "sin historial");
+  $("ideas-top").innerHTML = `<h2>Top 5 señales de las últimas 48 h</h2>${r.top.length ? `<ol>${r.top.map((s) => `<li>
+      <button class="activo" data-abrir="${esc(s.simbolo)}"><b>${esc(s.simbolo)}</b></button>
+      <span class="${s.direccion}">${s.direccion === "sube" ? "▲" : "▼"} BUY ${s.buy_pct}%</span>
+      <span class="etiqueta">${esc(s.tipo)}</span>
+      ${s.url ? `<a href="${esc(enlaceSeguro(s.url))}" target="_blank" rel="noopener noreferrer">${esc(s.titulo)}</a>` : `<span>${esc(s.titulo)}</span>`}
+      <small>${historial(s)} · peso ${numero(s.peso, 2)}</small></li>`).join("")}</ol>`
+    : '<p class="nota">No hay señales pendientes de las últimas 48 h.</p>'}
+    <p class="legal">Ordenadas por confianza, distancia a 50 y el acierto medido de su tipo frente al índice. Los tipos que han demostrado perder quedan fuera. Son estimaciones, no recomendaciones.</p>`;
 }
 
 function juicioDe(idea) {
@@ -1424,6 +1445,9 @@ function pintarAjustes() {
   $("a-fred").value = "";
   $("a-fred").placeholder = c.tiene_fred ? "Guardada. Escribe otra para cambiarla" : "Opcional: fechas de IPC, empleo, PIB y PCE";
   $("a-fred-estado").textContent = c.tiene_fred ? "● Configurada" : "";
+  $("a-sec").value = "";
+  $("a-sec").placeholder = c.tiene_sec ? "Guardado. Escribe otro para cambiarlo" : "Nombre correo@ejemplo.com";
+  $("a-sec-estado").textContent = c.tiene_sec ? "● Configurado" : "";
   $("a-auto").checked = c.auto_analizar;
   $("a-resumen-auto").checked = c.resumen_auto;
   $("a-moneda").value = c.moneda;
@@ -1486,6 +1510,7 @@ $("form-ajustes").addEventListener("submit", async (e) => {
   };
   if ($("a-tg-token").value.trim()) cuerpo.telegram_token = $("a-tg-token").value.trim();
   if ($("a-fred").value.trim()) cuerpo.fred_key = $("a-fred").value.trim();
+  if ($("a-sec").value.trim()) cuerpo.sec_contacto = $("a-sec").value.trim();
   if ($("a-clave").value.trim()) cuerpo.anthropic_key = $("a-clave").value;
   if ($("a-x").value.trim()) cuerpo.x_token = $("a-x").value;
   for (const [pub, priv, cPub, cPriv] of [["a-kraken-key", "a-kraken-secret", "kraken_key", "kraken_secret"],
@@ -1593,6 +1618,7 @@ S.origenAciertos = "cartera";
 const VACIO_ACIERTOS = {
   cartera: "Aún no hay señales de tu cartera. Cuando analices noticias con IA, cada efecto sobre uno de tus activos se guarda aquí y se juzga al terminar su horizonte.",
   ideas: "Aún no hay ideas. Las que proponga el modo oportunidades se juzgan aquí igual que las señales de tu cartera.",
+  reglas: "Aún no hay señales por reglas. Radar las evalúa cada día a partir de las 22:00 si la ventana está abierta.",
   todas: "Aún no hay señales.",
 };
 
@@ -1654,6 +1680,10 @@ function pintarAciertos() {
     <tbody>${a.por_activo.map((g) => filaAcierto(`<button class="activo" data-abrir="${esc(g.simbolo)}"><b>${esc(g.simbolo)}</b></button>`, g, `<td>${g.pendientes}</td>`)).join("")}</tbody>`;
   $("ac-horizontes").innerHTML = `<thead><tr><th>Horizonte</th><th>Con dirección</th><th>Aciertos</th></tr></thead>
     <tbody>${a.por_horizonte.map((g) => filaAcierto(esc(HORIZONTES[g.horizonte] || g.horizonte), g)).join("")}</tbody>`;
+  $("ac-tipos").innerHTML = `<thead><tr><th>Tipo de señal</th><th title="Señales en días distintos">Efectivas</th><th>Frente al índice</th><th>Neto medio</th><th title="Su ventaja medida, contraída hacia 0 con pocos datos">Peso</th></tr></thead>
+    <tbody>${(a.por_tipo || []).map((t) => `<tr><td>${esc(t.tipo)}</td><td>${t.efectivas}${t.pendientes ? ` <small class="neutro">+${t.pendientes} pend.</small>` : ""}</td>
+      <td>${t.frente_indice === null ? "—" : `${pctSimple(t.frente_indice)}${t.intervalo ? ` <small class="neutro">${numero(t.intervalo[0], 0)}–${numero(t.intervalo[1], 0)}</small>` : ""}`}</td>
+      <td class="${claseVar(t.neto_medio)}">${pct(t.neto_medio)}</td><td class="${claseVar(t.peso)}">${numero(t.peso, 2)}</td></tr>`).join("")}</tbody>`;
   pintarSenales();
 }
 

@@ -22,7 +22,9 @@ import agente
 import alertas
 import analista
 import calendario
+import calibracion
 import canales
+import cuant
 import cuenta
 import datos
 import kraken
@@ -36,7 +38,8 @@ STATIC = Path(__file__).resolve().parent / "static"
 HOSTS_VALIDOS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 MONEDAS = ("EUR", "USD", "GBP")
 SECRETOS = ("anthropic_key", "x_token", "kraken_key", "kraken_secret", "kraken_fut_key", "kraken_fut_secret",
-            "telegram_token", "fred_key")
+            "telegram_token", "fred_key", "sec_contacto")
+CONTACTO_SEC = re.compile(r".+\s\S+@\S+\.\S+")  # "Nombre correo@dominio", como pide la SEC
 LIMITES = [  # ajustes numéricos: (clave, tipo, mínimo, máximo, error)
     ("max_analisis", int, 1, 100, "Número de noticias no válido"),
     ("max_oportunidades", int, 1, 60, "Número de noticias para ideas no válido"),
@@ -72,6 +75,7 @@ def ajustes_publicos():
         "tiene_kraken_fut": bool(cfg["kraken_fut_key"] and cfg["kraken_fut_secret"]),
         "tiene_telegram": bool(cfg["telegram_token"]),
         "tiene_fred": bool(cfg["fred_key"]),
+        "tiene_sec": bool(cfg["sec_contacto"]),
         "agente_listo": agente.listo(cfg),
         "cuenta": cuenta.estado(),
         "modelos": agente.MODELOS,
@@ -195,6 +199,8 @@ def guardar_ajustes(cuerpo):
     for clave in SECRETOS:
         if clave in cuerpo:  # vacío = borrar la clave guardada
             cambios[clave] = str(cuerpo[clave]).strip()
+    if cambios.get("sec_contacto") and not CONTACTO_SEC.fullmatch(cambios["sec_contacto"]):
+        raise ErrorApi(400, "El contacto para la SEC debe ser un nombre y un correo, por ejemplo «Ana Pérez ana@correo.com»")
     if cuerpo.get("conexion") in ("cuenta", "api"):
         cambios["conexion"] = cuerpo["conexion"]
     for clave in ("modelo", "modelo_chat"):
@@ -347,6 +353,12 @@ class Manejador(BaseHTTPRequestHandler):
         elif ruta == "/api/alertas":
             self._json({"alertas": datos.alertas(int(time.time()) - 30 * 86400), "no_leidas": datos.no_leidas(),
                         "reglas": datos.reglas_alerta()})
+        elif ruta == "/api/cuant":
+            simbolo = q.get("s", "")
+            self._json({"lineas": cuant.texto_activo(cuant.de_activo(simbolo)), "macro": cuant.texto_macro(cuant.macro())})
+        elif ruta == "/api/top":
+            r = marcador.calcular("todas")
+            self._json({"top": calibracion.top(r["senales"], r["por_tipo"], time.time()), "tipos": r["por_tipo"]})
         elif ruta == "/api/alertas/no_leidas":
             self._json({"n": datos.no_leidas()})
         elif ruta == "/api/calendario":  # aparte: la primera vez consulta varias webs y tarda
@@ -434,6 +446,11 @@ class Servidor(ThreadingHTTPServer):
     # con su código antiguo: las rutas nuevas dan "No encontrado".
     allow_reuse_address = False
     daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # El navegador cierra conexiones abiertas al cambiar de página: no es un fallo y no debe ensuciar la ventana.
+        if not isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            super().handle_error(request, client_address)
 
 
 def _cerrar_anterior():

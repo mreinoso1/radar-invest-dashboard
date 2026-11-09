@@ -189,6 +189,7 @@
         </div>
       </div>
       <p class="nota-vista">El agente revisa las noticias buscando efectos sobre tu <a href="#cartera">watchlist</a>, no sobre lo que ya tienes: proveedores, clientes, competidores, sector y macro. Cada idea guarda el precio del momento y se juzga en <a href="#aciertos">Aciertos</a> igual que las señales de tu cartera, frente al índice y tras comisiones.</p>
+      <div class="top5" id="ideas-top"><p class="nota">Calculando el Top 5…</p></div>
       <div class="metricas" id="ideas-metricas"></div>
       <div class="dos-columnas">
         <div class="feed" id="ideas-lista"></div>
@@ -225,6 +226,7 @@
           <div class="segmentos" id="ac-origen" role="group" aria-label="Qué señales">
             <button data-origen="cartera" aria-pressed="true">Mi cartera</button>
             <button data-origen="ideas" aria-pressed="false">Ideas</button>
+            <button data-origen="reglas" aria-pressed="false">Reglas</button>
             <button data-origen="todas" aria-pressed="false">Todas</button>
           </div>
           <button class="boton" id="b-act-aciertos">Actualizar</button>
@@ -246,6 +248,9 @@
             <div class="tabla-envoltura"><table class="tabla" id="ac-activos"></table></div>
             <h2>Por horizonte</h2>
             <div class="tabla-envoltura"><table class="tabla" id="ac-horizontes"></table></div>
+            <h2>Por tipo de señal</h2>
+            <div class="tabla-envoltura"><table class="tabla" id="ac-tipos"></table></div>
+            <p class="nota">El peso es lo que ese tipo le ha ganado al índice, contraído hacia 0 cuando hay pocos datos: con 30 señales efectivas cuenta la mitad. Ordena el Top 5 de Ideas.</p>
           </div>
         </div>
         <h2 class="ac-titulo">Señales</h2>
@@ -430,6 +435,13 @@
           <label for="a-fred">Clave de FRED <span class="insignia" id="a-fred-estado"></span></label>
           <input id="a-fred" type="password" autocomplete="off" spellcheck="false" placeholder="Opcional: fechas de IPC, empleo, PIB y PCE">
           <p class="nota">Gratis y de solo lectura: <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" rel="noopener">fred.stlouisfed.org</a> › My Account › API Keys.</p>
+        </div>
+
+        <h2>Datos cuantitativos</h2>
+        <div class="campo">
+          <label for="a-sec">Contacto para la SEC (EDGAR) <span class="insignia" id="a-sec-estado"></span></label>
+          <input id="a-sec" type="text" autocomplete="off" spellcheck="false" placeholder="Nombre correo@ejemplo.com">
+          <p class="nota">La SEC exige que cada programa que lee sus datos se identifique con un nombre y un correo. Radar lo usa solo para eso, para leer los Form 4 de los directivos, y no lo guarda en el proyecto. Sin él, los datos de insiders salen como «s/d».</p>
         </div>
 
         <h2>Cartera</h2>

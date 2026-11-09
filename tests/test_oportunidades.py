@@ -6,6 +6,7 @@ from unittest import mock
 from tests import base
 
 import agente  # noqa: E402
+import cuant  # noqa: E402
 import datos  # noqa: E402
 import mercado  # noqa: E402
 import noticias  # noqa: E402
@@ -130,6 +131,7 @@ class PasadaTest(unittest.TestCase):
                                                       for s in ss]),
             mock.patch.object(mercado, "perfil", return_value="Qué es"),
             mock.patch.object(mercado, "indices", return_value=[]),
+            mock.patch.object(cuant, "bloque", return_value="<datos_cuantitativos>\nNVDA: datos\n</datos_cuantitativos>\n"),
         ]
         for p in parches:
             p.start()
@@ -158,6 +160,12 @@ class PasadaTest(unittest.TestCase):
     def test_cartera_no_entra_en_el_universo(self):
         oportunidades._correr(datos.pendientes_ideas(50, 0))
         self.assertNotIn("BTC-USD |", self.enviado[0])
+
+    def test_recibe_los_datos_cuantitativos_sin_insiders(self):
+        oportunidades._correr(datos.pendientes_ideas(50, 0))
+        self.assertIn("<datos_cuantitativos>", self.enviado[0])
+        simbolos, con_macro, con_insiders = cuant.bloque.call_args.args
+        self.assertFalse(con_insiders)  # para toda la watchlist serían cientos de peticiones a la SEC
 
 
 if __name__ == "__main__":

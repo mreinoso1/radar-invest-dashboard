@@ -20,12 +20,17 @@ import mercado
 PLAZOS = {"horas": 86400, "días": 7 * 86400, "semanas": 30 * 86400, "meses": 90 * 86400}
 TRAMOS = [(0, 35, "35 o menos"), (36, 45, "36-45"), (46, 54, "46-54"), (55, 64, "55-64"), (65, 100, "65 o más")]
 MINIMO = 30  # señales resueltas en días distintos para empezar a sacar conclusiones
-ORIGENES = ("cartera", "ideas", "todas")
+ORIGENES = ("cartera", "ideas", "reglas", "todas")
 CRIPTO = re.compile(r"-(USD|USDT|USDC|EUR|GBP)$")
 
 
 def es_cripto(simbolo):
     return bool(CRIPTO.search(simbolo))
+
+
+def ticker_de(simbolo):
+    """Cómo se llama un activo fuera de Yahoo: HYPE32196-USD es HYPE y BTC-USD es BTC."""
+    return re.sub(r"\d*" + CRIPTO.pattern, "", simbolo) if es_cripto(simbolo) else simbolo
 
 
 def indice_de(simbolo):
@@ -236,7 +241,7 @@ def _senales(origen, cfg):
                     "origen": "cartera", "item_id": a["item_id"], "titulo": a["titulo"], "url": a["url"],
                     "fuente": a["fuente"], "modelo": a["modelo"], "creado": a["creado"], "simbolo": imp["simbolo"],
                     "buy_pct": imp["buy_pct"], "direccion": imp["direccion"], "confianza": imp["confianza"],
-                    "horizonte": imp["horizonte"], "precio": imp.get("precio"),
+                    "horizonte": imp["horizonte"], "precio": imp.get("precio"), "subtipo": a.get("categoria"),
                 })
     if origen in ("ideas", "todas"):
         for i in datos.ideas():
@@ -245,6 +250,16 @@ def _senales(origen, cfg):
                 "fuente": i["fuente"], "modelo": i["modelo"], "creado": i["creado"], "simbolo": i["simbolo"],
                 "buy_pct": i["prob_subida"], "direccion": direccion_de(i["prob_subida"]),
                 "confianza": i["confianza"], "horizonte": i["horizonte"], "precio": i["precio"],
+                "subtipo": i["relacion"],
+            })
+    if origen in ("reglas", "todas"):
+        for r in datos.senales_reglas():
+            salida.append({
+                "origen": "reglas", "item_id": f"regla:{r['id']}", "titulo": r["detalle"], "url": "",
+                "fuente": "Radar", "modelo": f"regla {r['regla']}", "creado": r["creado"], "simbolo": r["simbolo"],
+                # La dirección es la apuesta de la regla; su probabilidad es la medida, aunque salga mala.
+                "buy_pct": r["prob_subida"], "direccion": r["direccion"],
+                "confianza": 50, "horizonte": r["horizonte"], "precio": r["precio"], "subtipo": r["regla"],
             })
     return [{**s, "coste": coste_de(s["simbolo"], cfg)} for s in salida]
 
@@ -275,11 +290,13 @@ def calcular(origen="cartera"):
                         historias.get(indice_de(s["simbolo"])))
                 if historias[s["simbolo"]] else {**s, "estado": "sin_datos"} for s in senales]
     resumen, calibracion, por_activo, por_horizonte = _resumir(juzgadas)
+    import calibracion as pesos  # aquí y no arriba: calibracion importa este módulo
     return {
         "origen": origen,
         "resumen": resumen,
         "calibracion": calibracion,
         "por_activo": por_activo,
         "por_horizonte": por_horizonte,
+        "por_tipo": pesos.por_tipo(juzgadas),
         "senales": sorted(juzgadas, key=lambda s: -s["creado"])[:400],
     }

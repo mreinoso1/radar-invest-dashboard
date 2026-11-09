@@ -132,6 +132,7 @@ class RondaTest(unittest.TestCase):
             mock.patch.object(calendario, "proximos", return_value=([], [])),
             mock.patch.object(canales, "enviar", side_effect=lambda a, cfg, c=None: self.enviadas.append(a)
                               or {"windows": "ok"}),
+            mock.patch.object(alertas, "top5", return_value=[]),
         ]
         for p in parches:
             p.start()
@@ -162,6 +163,31 @@ class RondaTest(unittest.TestCase):
         self.assertEqual(resumen["tipo"], "resumen")
         self.assertIn("NVDA sube un 6 %", resumen["texto"])
         self.assertEqual(datos.alertas_sin_enviar(), [])
+
+    def test_resumen_con_top5_aunque_no_haya_avisos(self):
+        senal = {"simbolo": "NVDA", "direccion": "sube", "buy_pct": 65, "tipo": "cartera:macro",
+                 "historial": {"efectivas": 0, "frente_indice": None, "intervalo": None}}
+        with mock.patch.object(alertas, "top5", return_value=[senal]):
+            alertas.ronda(int(datetime(2026, 11, 10, 21, 1).timestamp()))
+        [resumen] = self.enviadas
+        self.assertIn("Top 5 señales", resumen["texto"])
+        self.assertIn("• NVDA ▲ 65 % · cartera:macro · sin historial", resumen["texto"])
+
+    def test_trabajo_diario_una_vez_al_dia_tras_el_cierre(self):
+        lanzados = []
+
+        class HiloFalso:  # solo apunta que se lanzó: el trabajo de verdad iría a internet
+            def __init__(self, target, args, daemon):
+                self.args = args
+
+            def start(self):
+                lanzados.append(set(self.args[0]))
+
+        with mock.patch.object(alertas.threading, "Thread", HiloFalso):
+            alertas.ronda(int(datetime(2026, 11, 10, 21, 30).timestamp()))  # antes de las 22: nada
+            alertas.ronda(int(datetime(2026, 11, 10, 22, 5).timestamp()))
+            alertas.ronda(int(datetime(2026, 11, 10, 22, 6).timestamp()))   # ya hecho hoy
+        self.assertEqual(lanzados, [{"NVDA", "AMD"}])
 
     def test_noticias_viejas_no_avisan_al_arrancar(self):
         datos.guardar_items([base.item("n1", AHORA)])

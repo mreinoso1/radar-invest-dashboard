@@ -34,6 +34,14 @@ The interface and the analyst's answers are in Spanish.
   (earnings, Fed decisions, and US CPI, jobs, GDP and PCE with a free FRED key), and notifies you through
   Windows, Telegram or ntfy. Anti-spam limits defer the less urgent ones to a daily digest. It makes no
   model calls.
+- **Quantitative data**: Python computes estimate revisions and short interest (Yahoo), insider open-market
+  buys and sells from SEC EDGAR Form 4 filings (with a contact you declare, as the SEC requires), perpetual
+  funding and open interest (Hyperliquid and Kraken Futures), relative volume and US yields. The model
+  receives the numbers ready-made, and a daily snapshot builds a history for backtesting.
+- **Rule-based signals**: four transparent rules with thresholds fixed in advance (estimate revisions,
+  insider buying, extreme funding, volume with momentum) generate signals without the model. Each signal
+  type is weighted by how often it has beaten the index, shrunk towards zero with little data, and a daily
+  top 5 ranks pending signals by confidence and that measured weight.
 - **Hit-rate scoreboard**: judges each signal (portfolio and ideas alike) once its horizon ends and reports
   accuracy with a Wilson interval, the Brier score against always saying 50 %, calibration by bands, the
   result against SPY or BTC over the same window, and the result net of a round-trip fee.
