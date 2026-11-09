@@ -423,7 +423,7 @@ def _correr(items, limite):
             items = _agrupar(cliente, items)[:limite]
             with _lock:
                 _estado["total"] = len(items)
-        posiciones = datos.posiciones()
+        posiciones = con_cantidad()
         contexto, pesos, precios = _contexto(posiciones)
         simbolos = {p["simbolo"] for p in posiciones}
         lotes = [items[i:i + POR_LOTE] for i in range(0, len(items), POR_LOTE)]
@@ -454,6 +454,12 @@ def _cola(tipo, limite):
     return sorted(candidatos, key=relleno)[:limite]  # sorted es estable: mantiene el orden por fecha
 
 
+def con_cantidad():
+    """Lo que el inversor tiene de verdad. La watchlist (cantidad 0) la analiza el modo oportunidades:
+    si pasara por los dos, el marcador contaría dos veces el mismo activo."""
+    return [p for p in datos.posiciones() if p["cantidad"]]
+
+
 def listo(cfg):
     if cfg["conexion"] == "api":
         return bool(cfg["anthropic_key"])
@@ -467,8 +473,9 @@ def analizar(tipo, ids=None):
         if cfg["conexion"] == "api":
             return "Añade tu clave de Anthropic en Ajustes para activar el agente."
         return "Inicia sesión con tu cuenta de Claude en Ajustes para activar el agente."
-    if not datos.posiciones():
-        return "Añade al menos un activo en Cartera: el análisis se hace sobre tus activos."
+    if not con_cantidad():
+        return ("Añade al menos un activo con cantidad en Cartera: el análisis se hace sobre lo que tienes. "
+                "La watchlist se analiza en Ideas.")
     maximo = int(cfg["max_analisis"])
     agrupar = tipo == "noticia" and not ids
     # Se piden de más porque al agrupar sobran huecos: el cupo debe llenarse con hechos distintos.
