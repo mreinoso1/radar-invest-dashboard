@@ -136,6 +136,12 @@ bootstrap interval above zero, its maximum drawdown is at most 35 %, it made mon
 the universe is coins that survived to today, and they all move closely with BTC. Even a pass would only lead to
 paper trading, never straight to real money.
 
+**Result (run on 2026-11-09): not demonstrated.** On the eight main coins, Sharpe 0.96 (95 % interval 0.14 to
+1.75), but a maximum drawdown of 64 % and gains in only two of 2022-2025: re-entries during bear-market rallies
+(April and November 2022) were hit by the LUNA and FTX collapses. On the held-out coins, Sharpe 0.60 (−0.10 to
+1.33) and a 62 % drawdown. trend_v1 stays exactly as preregistered; any variant would be trend_v2, with its own
+preregistration and one more attempt on the counter.
+
 ## Getting started
 
 Requirements: Python 3.11 or later. Tested on Windows.
